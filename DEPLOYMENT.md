@@ -24,12 +24,27 @@ DROP_API_KEYS=your-super-secret-api-key-here
 
 **Uwaga:** Port 3000 jest używany wewnątrz kontenera (non-root user nodejs nie może bindować do portów <1024 bez uprawnień root).
 
-#### 2. Volume Mapping
+#### 2. Volume Mapping (Persistent Storage)
 
-Skonfiguruj persistent volume dla bazy danych:
+W panelu Coolify, kliknij **"Add Volume Mount"** i wprowadź:
 
-- **Host Path:** `/var/lib/coolify/volumes/drop-monitor-data`
-- **Container Path:** `/app/data`
+**Opcja 1 - Named Volume (zalecane):**
+
+```
+Name: drop-monitor-data
+Source Path: (zostaw puste)
+Destination Path: /app/data
+```
+
+**Opcja 2 - Bind Mount (jeśli potrzebujesz dostępu do plików z hosta):**
+
+```
+Name: drop-monitor-data
+Source Path: /var/lib/coolify/volumes/drop-monitor-data
+Destination Path: /app/data
+```
+
+**Uwaga:** Volume musi być skonfigurowany, inaczej baza danych SQLite zostanie utracona przy restart kontenera!
 
 #### 3. Port Mapping
 
