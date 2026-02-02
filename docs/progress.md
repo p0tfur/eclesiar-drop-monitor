@@ -1,4 +1,3 @@
-<<<<<<< G:/_programowanie/_projekty/Eclesiar/skrypty/drop-monitor-backend/docs/progress.md
 # Progress Log - Drop Monitor Backend
 
 ## 2024 - Performance Optimization & Code Review
@@ -164,7 +163,9 @@
 - **Environment Variables:** DROP_PORT, DROP_DB_PATH, DROP_ALLOWED_ORIGINS, DROP_API_KEYS
 
 ---
+
 =======
+
 # Progress Log - Drop Monitor Backend
 
 ## 2024 - Performance Optimization & Code Review
@@ -363,4 +364,3 @@
 - ✅ Dzięki temu domyślna ścieżka bazy jest poprawna (`/app/data/drop-monitor.db`), a `.env` jest szukany w `/app/.env` jeśli istnieje.
 
 ---
->>>>>>> C:/Users/shogun/.windsurf/worktrees/drop-monitor-backend/drop-monitor-backend-78729ded/docs/progress.md
