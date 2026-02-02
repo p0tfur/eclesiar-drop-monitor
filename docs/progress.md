@@ -101,6 +101,12 @@
 - **Database Persistence:** SQLite stored in `/app/data` with volume mount required
 - **Health Check:** Automated monitoring via `GET /api/health` endpoint
 
+#### Bugfix - Dockerfile Build Error:
+
+- ✅ **Problem:** `tsc: not found` - `npm ci --only=production` pomijał devDependencies (TypeScript)
+- ✅ **Fix:** Usunięto `--only=production` z builder stage - npm ci instaluje wszystko, `npm prune --production` czyści po build
+- ✅ Usunięto redundantny `npm install --save-dev` który nie działał z cache
+
 ---
 
 ### Task: Docker & Coolify Deployment Setup

@@ -4,14 +4,13 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --only=production && \
+RUN npm ci && \
     npm cache clean --force
 
 COPY tsconfig.json ./
 COPY src ./src
 
-RUN npm install --save-dev typescript @types/node @types/express @types/cors @types/compression && \
-    npm run build && \
+RUN npm run build && \
     npm prune --production
 
 FROM node:20-alpine AS runtime
