@@ -1,11 +1,11 @@
 (function initEclesiarApiConfig(global) {
   const existing = global.EclesiarApi || {};
-  const defaultBaseUrl = existing.dropMonitor?.baseUrl || "https://drop-monitor.example.com";
+  const defaultBaseUrl = existing.dropMonitor?.baseUrl || "https://drop-monitor.rpaby.pw";
   const endpoints = Object.assign(
     {
       drops: "/api/drops",
     },
-    existing.dropMonitor?.endpoints || {}
+    existing.dropMonitor?.endpoints || {},
   );
 
   function buildUrl(path) {
