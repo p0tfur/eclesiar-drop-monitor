@@ -39,6 +39,8 @@
     lastHitId: null,
     lastHitTimestamp: null,
     statsModalVisible: false,
+    domCache: new Map(),
+    lastCacheTime: 0,
   };
 
   const settings = {
@@ -64,8 +66,45 @@
     console.info("[DropMonitor] Zaktualizowano API key (ustawiony?", Boolean(normalized), ")");
   });
 
+  function getCachedElement(selector, ttl = 5000) {
+    const now = Date.now();
+    const cached = state.domCache.get(selector);
+    if (cached && now - cached.timestamp < ttl) {
+      return cached.element;
+    }
+    const element = document.querySelector(selector);
+    state.domCache.set(selector, { element, timestamp: now });
+    return element;
+  }
+
+  function clearDomCache() {
+    state.domCache.clear();
+    state.lastCacheTime = Date.now();
+  }
+
   function safeText(node) {
     return node ? (node.textContent || "").trim() : "";
+  }
+
+  function throttle(func, delay) {
+    let timeout = null;
+    let lastRan = 0;
+    return function (...args) {
+      const now = Date.now();
+      if (now - lastRan >= delay) {
+        func.apply(this, args);
+        lastRan = now;
+      } else {
+        clearTimeout(timeout);
+        timeout = setTimeout(
+          () => {
+            func.apply(this, args);
+            lastRan = Date.now();
+          },
+          delay - (now - lastRan),
+        );
+      }
+    };
   }
 
   function parseNumber(value) {
@@ -153,11 +192,11 @@
   }
 
   function parsePlayerInfo() {
-    const name = safeText(document.querySelector(".username.bold")) || "(unknown)";
-    const location = safeText(document.querySelector(".header-location-display .header-text")) || null;
-    const energyFraction = parseFraction(safeText(document.querySelector(".health-bar .display")));
-    const foodFraction = parseFraction(safeText(document.querySelector(".foodlimit-bar .display")));
-    const consumablesFraction = parseFraction(safeText(document.querySelector(".generic-value .display")));
+    const name = safeText(getCachedElement(".username.bold")) || "(unknown)";
+    const location = safeText(getCachedElement(".header-location-display .header-text")) || null;
+    const energyFraction = parseFraction(safeText(getCachedElement(".health-bar .display")));
+    const foodFraction = parseFraction(safeText(getCachedElement(".foodlimit-bar .display")));
+    const consumablesFraction = parseFraction(safeText(getCachedElement(".generic-value .display")));
 
     return {
       name,
@@ -275,7 +314,7 @@
     };
   }
 
-  async function sendHitRecord(options) {
+  async function sendHitRecord(options, retries = 3) {
     const payload = await buildHitPayload(options);
     const body = JSON.stringify(payload);
     const headers = { "Content-Type": "application/json" };
@@ -283,19 +322,33 @@
       headers["X-DROP-API-KEY"] = settings.apiKey;
     }
 
-    try {
-      const response = await fetch(getApiUrl(), {
-        method: "POST",
-        headers,
-        body,
-        credentials: "omit",
-      });
-      if (!response.ok) {
-        throw new Error(`API returned ${response.status}`);
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        const response = await fetch(getApiUrl(), {
+          method: "POST",
+          headers,
+          body,
+          credentials: "omit",
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`API returned ${response.status}`);
+        }
+        await response.json().catch(() => null);
+        return;
+      } catch (error) {
+        console.warn(`[DropMonitor] Próba ${attempt}/${retries} nieudana`, error);
+        if (attempt === retries) {
+          console.error("[DropMonitor] Nie udało się wysłać rekordu po wszystkich próbach", error);
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * Math.pow(2, attempt - 1), 5000)));
+        }
       }
-      await response.json().catch(() => null);
-    } catch (error) {
-      console.error("[DropMonitor] Nie udało się wysłać rekordu", error);
     }
   }
 
@@ -334,7 +387,7 @@
   }
 
   function observeNotifications() {
-    const observer = new MutationObserver((mutations) => {
+    const processAddedNodes = throttle((mutations) => {
       for (const mutation of mutations) {
         mutation.addedNodes.forEach((node) => {
           if (!(node instanceof HTMLElement)) return;
@@ -347,7 +400,9 @@
           });
         });
       }
-    });
+    }, 100);
+
+    const observer = new MutationObserver(processAddedNodes);
 
     observer.observe(document.body, { childList: true, subtree: true });
     scanExistingNotifications();
@@ -361,6 +416,7 @@
     button.addEventListener(
       "click",
       () => {
+        clearDomCache();
         const hitId = generateHitId();
         state.lastHitId = hitId;
         state.lastHitTimestamp = new Date().toISOString();
@@ -380,7 +436,7 @@
     const initialButtons = document.querySelectorAll(".fight-button");
     initialButtons.forEach(bindFightButton);
 
-    const observer = new MutationObserver((mutations) => {
+    const processButtons = throttle((mutations) => {
       for (const mutation of mutations) {
         mutation.addedNodes.forEach((node) => {
           if (!(node instanceof HTMLElement)) {
@@ -392,7 +448,9 @@
           node.querySelectorAll?.(".fight-button").forEach((btn) => bindFightButton(btn));
         });
       }
-    });
+    }, 100);
+
+    const observer = new MutationObserver(processButtons);
 
     observer.observe(document.body, { childList: true, subtree: true });
   }
@@ -506,12 +564,21 @@
       headers["X-DROP-API-KEY"] = settings.apiKey;
     }
 
-    const response = await fetch(url, { headers, credentials: "omit" });
-    if (!response.ok) {
-      throw new Error(`API returned ${response.status}`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const response = await fetch(url, { headers, credentials: "omit", signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+      const payload = await response.json();
+      return Array.isArray(payload?.data) ? payload.data : [];
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
     }
-    const payload = await response.json();
-    return Array.isArray(payload?.data) ? payload.data : [];
   }
 
   function renderStats(container, hits) {

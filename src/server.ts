@@ -2,6 +2,8 @@ import path from "path";
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
 import { config } from "./config";
 import { initDb, insertHitRecord, listHitRecords } from "./db";
 import { hitPayloadSchema, listQuerySchema } from "./schemas";
@@ -26,9 +28,42 @@ const corsMiddleware = cors({
   },
 });
 
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: "error", message: "Too many requests" },
+});
+
+const postLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: "error", message: "Too many POST requests" },
+});
+
+const requestTimeout = (timeoutMs: number) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const timeout = setTimeout(() => {
+      if (!res.headersSent) {
+        res.status(408).json({ status: "error", message: "Request timeout" });
+      }
+    }, timeoutMs);
+
+    res.on("finish", () => clearTimeout(timeout));
+    res.on("close", () => clearTimeout(timeout));
+    next();
+  };
+};
+
 app.use(corsMiddleware);
 app.use(helmet());
-app.use(express.json({ limit: "1mb" }));
+app.use(compression());
+app.use(express.json({ limit: "512kb" }));
+app.use(requestTimeout(10000));
+app.use("/api", apiLimiter);
 
 const staticDir = path.resolve(__dirname, "../public");
 app.use("/scripts", express.static(staticDir));
@@ -57,7 +92,7 @@ app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
 });
 
-app.post("/api/hits", async (req: Request, res: Response, next: NextFunction) => {
+app.post("/api/hits", postLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!ensureAuthorized(req)) {
       return res.status(401).json({ status: "error", message: "Invalid API key" });
@@ -129,9 +164,27 @@ app.get("/api/hits", async (req: Request, res: Response) => {
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error("[DropMonitor] Unhandled error", err);
-  res.status(500).json({ status: "error", message: "Internal server error" });
+  if (!res.headersSent) {
+    res.status(500).json({ status: "error", message: "Internal server error" });
+  }
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`[DropMonitor] API listening on port ${port}`);
+});
+
+process.on("SIGTERM", () => {
+  console.log("[DropMonitor] SIGTERM received, closing server gracefully");
+  server.close(() => {
+    console.log("[DropMonitor] Server closed");
+    process.exit(0);
+  });
+});
+
+process.on("SIGINT", () => {
+  console.log("[DropMonitor] SIGINT received, closing server gracefully");
+  server.close(() => {
+    console.log("[DropMonitor] Server closed");
+    process.exit(0);
+  });
 });

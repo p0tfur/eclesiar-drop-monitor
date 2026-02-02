@@ -64,6 +64,12 @@ async function getDb(): Promise<Database> {
       driver: sqlite3.Database,
     }).then(async (db) => {
       await db.exec(`
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        PRAGMA cache_size = -64000;
+        PRAGMA temp_store = MEMORY;
+        PRAGMA mmap_size = 30000000000;
+
         CREATE TABLE IF NOT EXISTS war_hits (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -106,6 +112,8 @@ async function getDb(): Promise<Database> {
         CREATE INDEX IF NOT EXISTS idx_war_hits_war_id ON war_hits(war_id);
         CREATE INDEX IF NOT EXISTS idx_war_hits_player ON war_hits(player_name);
         CREATE INDEX IF NOT EXISTS idx_war_hits_created ON war_hits(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_war_hits_is_drop ON war_hits(is_drop) WHERE is_drop = 1;
+        CREATE INDEX IF NOT EXISTS idx_war_hits_composite ON war_hits(player_name, created_at DESC) WHERE is_drop = 1;
       `);
       return db;
     });
@@ -120,9 +128,11 @@ export async function initDb(): Promise<Database> {
 
 export async function insertHitRecord(record: HitRecordInsert): Promise<string> {
   const db = await getDb();
-  const result = await db.run(
-    `
-    INSERT INTO war_hits (
+  await db.run("BEGIN IMMEDIATE");
+  try {
+    await db.run(
+      `
+      INSERT INTO war_hits (
       hit_id,
       source,
       is_drop,
@@ -227,10 +237,15 @@ export async function insertHitRecord(record: HitRecordInsert): Promise<string> 
       drop_heading = excluded.drop_heading,
       drop_description = excluded.drop_description,
       extra = excluded.extra
-  `,
-    record,
-  );
-  return record.hitId;
+    `,
+      record,
+    );
+    await db.run("COMMIT");
+    return record.hitId;
+  } catch (error) {
+    await db.run("ROLLBACK");
+    throw error;
+  }
 }
 
 export async function listHitRecords(filters: {
@@ -240,7 +255,7 @@ export async function listHitRecords(filters: {
   afterId?: number;
 }): Promise<HitRecordRow[]> {
   const db = await getDb();
-  const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
+  const limit = Math.min(Math.max(filters.limit ?? 50, 1), 100);
   const rows = await db.all<HitRecordRow>(
     `
     SELECT
