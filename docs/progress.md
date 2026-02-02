@@ -103,9 +103,10 @@
 
 #### Bugfix - Dockerfile Build Error:
 
-- ✅ **Problem:** `tsc: not found` - `npm ci --only=production` pomijał devDependencies (TypeScript)
-- ✅ **Fix:** Usunięto `--only=production` z builder stage - npm ci instaluje wszystko, `npm prune --production` czyści po build
-- ✅ Usunięto redundantny `npm install --save-dev` który nie działał z cache
+- ✅ **Problem:** `tsc: not found` - Coolify ustawia `NODE_ENV=production` jako build ARG, co blokuje devDependencies w npm ci
+- ✅ **Root cause:** `npm ci` respektuje NODE_ENV i pomija devDeps gdy NODE_ENV=production
+- ✅ **Fix:** Zmieniono `npm ci` na `npm install --include=dev` aby wymusić instalację devDeps niezależnie od NODE_ENV
+- ✅ `npm prune --production` po buildzie usuwa devDeps z runtime stage
 
 ---
 
