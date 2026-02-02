@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  drop-monitor-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: drop-monitor-backend
+    restart: unless-stopped
+    ports:
+      - "4110:3000"
+    environment:
+      - NODE_ENV=production
+      - DROP_PORT=3000
+      - DROP_DB_PATH=/app/data/drop-monitor.db
+      - DROP_ALLOWED_ORIGINS=https://eclesiar.com,https://www.eclesiar.com
+      - DROP_API_KEYS=${DROP_API_KEYS:-change-me-super-secret-key}
+    volumes:
+      - drop-data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - drop-monitor-network
+
+volumes:
+  drop-data:
+    driver: local
+
+networks:
+  drop-monitor-network:
+    driver: bridge

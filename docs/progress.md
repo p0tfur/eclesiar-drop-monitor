@@ -3,11 +3,13 @@
 ## 2024 - Performance Optimization & Code Review
 
 ### Task: Backend, API, and User Script Optimization
+
 **Date:** Current session
 
 #### Changes Implemented:
 
 **1. Database Layer (db.ts) - Performance Optimizations:**
+
 - ✅ Enabled SQLite WAL (Write-Ahead Logging) mode for better concurrency
 - ✅ Optimized PRAGMA settings:
   - `synchronous = NORMAL` for balanced performance/safety
@@ -22,6 +24,7 @@
 - ✅ Reduced max query limit from 200 to 100 records
 
 **2. API Server (server.ts) - Security & Performance:**
+
 - ✅ Added response compression (gzip) using `compression` middleware
 - ✅ Implemented rate limiting:
   - General API: 1000 requests per 15 minutes
@@ -32,6 +35,7 @@
 - ✅ Fixed error handler to check for headers already sent
 
 **3. User Script (Eclesiar_Drop_Monitor.user.js) - Client-Side Optimizations:**
+
 - ✅ Added DOM element caching system with TTL (5 seconds)
 - ✅ Implemented throttling for MutationObserver callbacks (100ms)
 - ✅ Added retry logic with exponential backoff (3 attempts) for API requests
@@ -40,13 +44,115 @@
 - ✅ Optimized parsePlayerInfo to use cached DOM selectors
 
 #### Performance Impact:
+
 - **Database:** WAL mode enables concurrent reads during writes, indexes speed up filtered queries
 - **API:** Compression reduces bandwidth by ~70%, rate limiting prevents abuse
 - **User Script:** DOM caching reduces querySelector calls, throttling prevents excessive processing
 
 #### Dependencies Added:
+
 - `compression` ^2.0.0 - Response compression
 - `express-rate-limit` ^7.0.0 - Rate limiting middleware
 - `@types/compression` (dev) - TypeScript definitions
+
+---
+
+## 2024 - Docker & Coolify Deployment Setup
+
+**Date:** Current session
+
+#### Changes Implemented:
+
+**1. Dockerfile Optimization:**
+
+- ✅ Changed container port from 80 to 3000 (non-root user security)
+- ✅ Multi-stage build already configured
+- ✅ Health check endpoint on `/api/health`
+- ✅ Tini process manager for proper signal handling
+- ✅ Non-root nodejs user (UID 1001)
+
+**2. Docker Compose:**
+
+- ✅ Updated port mapping: `4110:3000` (host:container)
+- ✅ Persistent volume for SQLite database
+- ✅ Environment variables configuration
+- ✅ Health check integration
+
+**3. Environment Configuration:**
+
+- ✅ Updated `.env.example` with Docker deployment notes
+- ✅ Documented port usage: 3000 for Docker, 4110 for local dev
+
+**4. Deployment Documentation (DEPLOYMENT.md):**
+
+- ✅ Complete Coolify deployment guide
+- ✅ Environment variables setup for Coolify
+- ✅ Volume mapping instructions
+- ✅ Port configuration (3000 internal, 80/443 via reverse proxy)
+- ✅ Local Docker testing instructions
+- ✅ Database backup/restore procedures
+- ✅ Troubleshooting section
+- ✅ Security best practices
+- ✅ Performance tuning recommendations
+
+#### Technical Notes:
+
+- **Port 3000 vs 80:** Port 3000 używany wewnątrz kontenera bo non-root user (nodejs) nie może bindować do portów <1024 bez uprawnień root. Coolify reverse proxy mapuje to na publiczne 80/443.
+- **Database Persistence:** SQLite stored in `/app/data` with volume mount required
+- **Health Check:** Automated monitoring via `GET /api/health` endpoint
+
+---
+
+### Task: Docker & Coolify Deployment Setup
+
+**Date:** Current session
+
+#### Changes Implemented:
+
+**1. Dockerfile:**
+
+- ✅ Multi-stage build (builder + runtime)
+- ✅ Node.js 20 Alpine base image
+- ✅ Non-root user (nodejs:1001)
+- ✅ Tini init system for proper signal handling
+- ✅ Health check endpoint configured
+- ✅ Production optimizations (npm ci, prune)
+- ✅ Default port 80 for container
+- ✅ Volume mount point `/app/data` for SQLite
+
+**2. .dockerignore:**
+
+- ✅ Exclude node_modules, dist, logs
+- ✅ Exclude .env files (security)
+- ✅ Exclude database files from build context
+
+**3. docker-compose.yml:**
+
+- ✅ Service configuration for local testing
+- ✅ Volume mapping for data persistence
+- ✅ Environment variables template
+- ✅ Health check configuration
+- ✅ Port mapping 4110:80
+
+**4. Configuration Updates:**
+
+- ✅ Updated .env.example with Docker-specific comments
+- ✅ Port 80 as default for Docker deployment
+- ✅ Database path `/app/data/drop-monitor.db` for containers
+
+**5. Documentation:**
+
+- ✅ Created DEPLOYMENT.md with Coolify instructions
+- ✅ Local Docker testing guide
+- ✅ Database backup/restore procedures
+- ✅ Troubleshooting section
+- ✅ Security best practices
+
+#### Coolify Configuration:
+
+- **Port:** 80 (wewnątrz kontenera)
+- **Volume:** `/app/data` dla persistence bazy danych
+- **Health Check:** `/api/health` endpoint
+- **Environment Variables:** DROP_PORT, DROP_DB_PATH, DROP_ALLOWED_ORIGINS, DROP_API_KEYS
 
 ---
