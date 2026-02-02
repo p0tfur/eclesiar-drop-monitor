@@ -256,7 +256,7 @@ export async function listHitRecords(filters: {
 }): Promise<HitRecordRow[]> {
   const db = await getDb();
   const limit = Math.min(Math.max(filters.limit ?? 50, 1), 100);
-  const rows = await db.all<HitRecordRow>(
+  const rows = await db.all<HitRecordRow[]>(
     `
     SELECT
       id,
