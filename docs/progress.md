@@ -387,4 +387,32 @@
 - ✅ Rozszerzono obsługę błędów API o treść odpowiedzi (np. `Invalid API key`).
 - ✅ Wyłączono retry przy `401/403` (błędy autoryzacji nie powinny być ponawiane).
 
+**3. API Server (server.ts) - trust proxy za reverse proxy:**
+
+- ✅ Włączono `app.set("trust proxy", true)` - naprawia warning `express-rate-limit` o `X-Forwarded-For`.
+- ✅ Logi będą teraz pokazywać prawdziwe IP użytkownika zamiast wewnętrznego IP kontenera Docker.
+
+---
+
+## 2026 - Reverse Proxy Rate Limit Fix & CORS Headers
+
+**Date:** 2026-02-03
+
+#### Problem:
+
+- ✅ `express-rate-limit` rzucał `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` w środowisku z reverse proxy.
+- ✅ Backend nie dopuszczał jawnie nagłówków autoryzacji w CORS, co mogło blokować przesyłanie `X-DROP-API-KEY`.
+
+#### Changes Implemented:
+
+**1. API Server (server.ts):**
+
+- ✅ Włączono `trust proxy` (wartość `1`) dla poprawnej obsługi `X-Forwarded-For`.
+- ✅ Ustawiono `allowedHeaders` w CORS na `Content-Type`, `X-DROP-API-KEY`, `Authorization` oraz metody `GET/POST/OPTIONS`.
+- ✅ Rozszerzono log `401` o listę nazw nagłówków (bez wartości).
+
+**2. User Script (Eclesiar_Drop_Monitor.user.js):**
+
+- ✅ Dodano log startowy pokazujący `baseUrl`, `endpoint` i czy `apiKey` jest ustawiony (bez wypisywania klucza).
+
 ---

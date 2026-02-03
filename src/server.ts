@@ -16,6 +16,8 @@ void initDb().catch((err) => {
 const app = express();
 const port = config.port;
 
+app.set("trust proxy", true);
+
 const corsMiddleware = cors({
   origin: (origin, callback) => {
     if (!origin || config.allowedOrigins.length === 0) {
@@ -26,6 +28,8 @@ const corsMiddleware = cors({
     }
     return callback(new Error("Origin not allowed"));
   },
+  allowedHeaders: ["Content-Type", "X-DROP-API-KEY", "Authorization"],
+  methods: ["GET", "POST", "OPTIONS"],
 });
 
 const apiLimiter = rateLimit({
@@ -130,6 +134,7 @@ app.post("/api/hits", postLimiter, async (req: Request, res: Response, next: Nex
         origin: req.header("origin") || null,
         ip: req.ip,
         userAgent: req.header("user-agent") || null,
+        headerNames: Object.keys(req.headers || {}),
         hasApiKey: Boolean(provided),
         apiKey: maskApiKey(provided),
       });

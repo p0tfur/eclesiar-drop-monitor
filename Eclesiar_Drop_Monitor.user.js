@@ -48,6 +48,12 @@
     apiKey: GM_getValue(STORAGE_KEYS.apiKey, ""),
   };
 
+  console.info("[DropMonitor] Konfiguracja", {
+    baseUrl: settings.baseUrl || DEFAULT_BASE_URL,
+    endpoint: DEFAULT_ENDPOINT,
+    hasApiKey: Boolean(settings.apiKey),
+  });
+
   GM_registerMenuCommand("Drop Monitor: Ustaw bazowy URL API", () => {
     const value = prompt("Podaj bazowy URL API drop-monitor", settings.baseUrl || DEFAULT_BASE_URL);
     if (value) {
