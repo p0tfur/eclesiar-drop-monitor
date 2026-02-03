@@ -456,3 +456,27 @@
 - ✅ Wyłączono retry dla `400` (walidacja nie jest błędem tymczasowym).
 
 ---
+
+## 2026 - Fix 500 (SQLite SQLITE_RANGE) & Rate-Limit Trust Proxy
+
+**Date:** 2026-02-03
+
+#### Problem:
+
+- ✅ API zwracało `500 Internal server error`.
+- ✅ W logach: `SQLITE_RANGE: column index out of range` podczas insertu.
+- ✅ `express-rate-limit` rzucał walidacyjne wyjątki związane z `trust proxy` w środowisku z reverse proxy.
+
+#### Changes Implemented:
+
+**1. Database (db.ts):**
+
+- ✅ Przebudowano `INSERT` na parametry pozycyjne (`?`) aby uniknąć problemów z named binding w SQLite.
+- ✅ `isDrop` jest zapisywane jako `0/1`.
+
+**2. API Server (server.ts + config.ts):**
+
+- ✅ Dodano konfigurację `DROP_TRUST_PROXY_HOPS` (domyślnie `1`) i ustawienie `app.set('trust proxy', <hops>)`.
+- ✅ Wyłączono walidację `trustProxy` w `express-rate-limit` (opcja `validate.trustProxy = false`), aby middleware nie rzucał wyjątkami w reverse proxy.
+
+---

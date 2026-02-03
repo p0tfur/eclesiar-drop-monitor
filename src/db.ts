@@ -130,6 +130,43 @@ export async function insertHitRecord(record: HitRecordInsert): Promise<string> 
   const db = await getDb();
   await db.run("BEGIN IMMEDIATE");
   try {
+    const params = [
+      record.hitId,
+      record.source,
+      record.isDrop ? 1 : 0,
+      record.buttonLabel ?? null,
+      record.hitTriggeredAt ?? null,
+      record.warId ?? null,
+      record.battleId ?? null,
+      record.warUrl ?? null,
+      record.regionId ?? null,
+      record.regionName ?? null,
+      record.attackerId ?? null,
+      record.attackerName ?? null,
+      record.defenderId ?? null,
+      record.defenderName ?? null,
+      record.warEffects ?? null,
+      record.roundNumber ?? null,
+      record.roundLabel ?? null,
+      record.roundTimerSeconds ?? null,
+      record.playerName,
+      record.playerLocation ?? null,
+      record.playerEnergyCurrent ?? null,
+      record.playerEnergyMax ?? null,
+      record.playerFoodCurrent ?? null,
+      record.playerFoodMax ?? null,
+      record.playerConsumablesCurrent ?? null,
+      record.playerConsumablesMax ?? null,
+      record.currencyGold ?? null,
+      record.currencyPln ?? null,
+      record.currencyDetails ?? null,
+      record.dropChance ?? null,
+      record.dropMessageId ?? null,
+      record.dropHeading ?? null,
+      record.dropDescription ?? null,
+      record.extra ?? null,
+    ];
+
     await db.run(
       `
       INSERT INTO war_hits (
@@ -168,40 +205,7 @@ export async function insertHitRecord(record: HitRecordInsert): Promise<string> 
       drop_description,
       extra
     ) VALUES (
-      :hitId,
-      :source,
-      :isDrop,
-      :buttonLabel,
-      :hitTriggeredAt,
-      :warId,
-      :battleId,
-      :warUrl,
-      :regionId,
-      :regionName,
-      :attackerId,
-      :attackerName,
-      :defenderId,
-      :defenderName,
-      :warEffects,
-      :roundNumber,
-      :roundLabel,
-      :roundTimerSeconds,
-      :playerName,
-      :playerLocation,
-      :playerEnergyCurrent,
-      :playerEnergyMax,
-      :playerFoodCurrent,
-      :playerFoodMax,
-      :playerConsumablesCurrent,
-      :playerConsumablesMax,
-      :currencyGold,
-      :currencyPln,
-      :currencyDetails,
-      :dropChance,
-      :dropMessageId,
-      :dropHeading,
-      :dropDescription,
-      :extra
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
     ON CONFLICT(hit_id) DO UPDATE SET
       source = excluded.source,
@@ -238,7 +242,7 @@ export async function insertHitRecord(record: HitRecordInsert): Promise<string> 
       drop_description = excluded.drop_description,
       extra = excluded.extra
     `,
-      record,
+      params,
     );
     await db.run("COMMIT");
     return record.hitId;

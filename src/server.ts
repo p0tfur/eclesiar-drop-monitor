@@ -16,7 +16,7 @@ void initDb().catch((err) => {
 const app = express();
 const port = config.port;
 
-app.set("trust proxy", true);
+app.set("trust proxy", Math.max(0, config.trustProxyHops));
 
 const corsMiddleware = cors({
   origin: (origin, callback) => {
@@ -37,6 +37,9 @@ const apiLimiter = rateLimit({
   max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: {
+    trustProxy: false,
+  },
   message: { status: "error", message: "Too many requests" },
 });
 
@@ -45,6 +48,9 @@ const postLimiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: {
+    trustProxy: false,
+  },
   message: { status: "error", message: "Too many POST requests" },
 });
 
