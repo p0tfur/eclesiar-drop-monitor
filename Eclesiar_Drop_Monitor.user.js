@@ -583,8 +583,8 @@
 
       try {
         updatePanelSize();
-        const hits = await fetchRecentHits(Math.max(100, settings.statsRowLimit), settings.statsOnlyMine);
-        renderStats(content, hits, {
+        const statsPayload = await fetchRecentHits(settings.statsRowLimit, settings.statsOnlyMine);
+        renderStats(content, statsPayload, {
           showAllColumns: settings.statsShowAllColumns,
           rowLimit: settings.statsRowLimit,
         });
@@ -668,20 +668,34 @@
         throw new Error(`API returned ${response.status}`);
       }
       const payload = await response.json();
-      return Array.isArray(payload?.data) ? payload.data : [];
+      const hits = Array.isArray(payload?.data) ? payload.data : [];
+      return {
+        hits,
+        meta: {
+          totalHits: Number(payload?.meta?.totalHits ?? hits.length),
+          totalDrops: Number(payload?.meta?.totalDrops ?? hits.filter((hit) => hit.isDrop).length),
+          lastDropAt: payload?.meta?.lastDropAt || null,
+        },
+      };
     } catch (error) {
       clearTimeout(timeoutId);
       throw error;
     }
   }
 
-  function renderStats(container, hits, options = {}) {
+  function renderStats(container, statsPayload, options = {}) {
     if (!container) return;
-    const total = hits.length;
-    const drops = hits.filter((hit) => hit.isDrop).length;
+    const hits = Array.isArray(statsPayload?.hits)
+      ? statsPayload.hits
+      : Array.isArray(statsPayload)
+        ? statsPayload
+        : [];
+    const totalFetched = hits.length;
+    const total = Number(statsPayload?.meta?.totalHits ?? totalFetched);
+    const drops = Number(statsPayload?.meta?.totalDrops ?? hits.filter((hit) => hit.isDrop).length);
     const rate = total ? ((drops / total) * 100).toFixed(2) : "0.00";
-    const lastDrop = hits.find((hit) => hit.isDrop);
-    const lastDropText = lastDrop ? new Date(lastDrop.createdAt).toLocaleString() : "Brak";
+    const lastDrop = statsPayload?.meta?.lastDropAt || hits.find((hit) => hit.isDrop)?.createdAt || null;
+    const lastDropText = lastDrop ? new Date(lastDrop).toLocaleString() : "Brak";
 
     const showAllColumns = Boolean(options.showAllColumns);
     const rowLimit = Math.max(1, Math.min(500, Number(options.rowLimit) || 10));
@@ -777,9 +791,9 @@
         })
         .join("");
 
-      const summaryHtml = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${total}</div><div style="font-size:12px;color:#9ca3af;">Ostatnie hity</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${drops}</div><div style="font-size:12px;color:#9ca3af;">Dropy</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${rate}%</div><div style="font-size:12px;color:#9ca3af;">Drop rate</div></div></div>`;
+      const summaryHtml = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${total}</div><div style="font-size:12px;color:#9ca3af;">Wszystkie hity w bazie</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${drops}</div><div style="font-size:12px;color:#9ca3af;">Wszystkie dropy w bazie</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${rate}%</div><div style="font-size:12px;color:#9ca3af;">Drop rate (baza)</div></div></div>`;
       const rowsHtml = rows || '<tr><td colspan="99" style="padding:8px 0;text-align:center;">Brak danych</td></tr>';
-      container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><div style="overflow-x:auto;border:1px solid #1f2937;border-radius:8px;"><table style="width:max-content;min-width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>${head}</tr></thead><tbody>${rowsHtml}</tbody></table></div><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano ${shown} z ${total} pobranych rekordów.</p>`;
+      container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><div style="overflow-x:auto;border:1px solid #1f2937;border-radius:8px;"><table style="width:max-content;min-width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>${head}</tr></thead><tbody>${rowsHtml}</tbody></table></div><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano ${shown} z ${totalFetched} pobranych rekordow (w bazie: ${total}).</p>`;
 
       return;
     }
@@ -791,9 +805,9 @@
       })
       .join("");
 
-    const summaryHtml = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${total}</div><div style="font-size:12px;color:#9ca3af;">Ostatnie hity</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${drops}</div><div style="font-size:12px;color:#9ca3af;">Dropy</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${rate}%</div><div style="font-size:12px;color:#9ca3af;">Drop rate</div></div></div>`;
+    const summaryHtml = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${total}</div><div style="font-size:12px;color:#9ca3af;">Wszystkie hity w bazie</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${drops}</div><div style="font-size:12px;color:#9ca3af;">Wszystkie dropy w bazie</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${rate}%</div><div style="font-size:12px;color:#9ca3af;">Drop rate (baza)</div></div></div>`;
     const bodyHtml = rowsHtml || '<tr><td colspan="6" style="padding:8px 0;text-align:center;">Brak danych</td></tr>';
-    container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Czas</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Akcja</th><th style="text-align:center;padding:4px 0;border-bottom:1px solid #374151;">Drop</th><th style="text-align:right;padding:4px 0;border-bottom:1px solid #374151;">Chance</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Gdzie</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Opis</th></tr></thead><tbody>${bodyHtml}</tbody></table><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano ${shown} z ${total} pobranych rekordów.</p>`;
+    container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Czas</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Akcja</th><th style="text-align:center;padding:4px 0;border-bottom:1px solid #374151;">Drop</th><th style="text-align:right;padding:4px 0;border-bottom:1px solid #374151;">Chance</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Gdzie</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Opis</th></tr></thead><tbody>${bodyHtml}</tbody></table><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano ${shown} z ${totalFetched} pobranych rekordow (w bazie: ${total}).</p>`;
   }
 
   observeNotifications();

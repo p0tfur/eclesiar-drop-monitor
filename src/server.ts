@@ -214,8 +214,16 @@ app.get("/api/hits", async (req: Request, res: Response) => {
     return res.status(400).json({ status: "error", message: "Invalid query", issues: parsed.error.issues });
   }
 
-  const rows = await listHitRecords(parsed.data);
-  return res.json({ status: "ok", data: rows });
+  const result = await listHitRecords(parsed.data);
+  return res.json({
+    status: "ok",
+    data: result.rows,
+    meta: {
+      totalHits: result.totalHits,
+      totalDrops: result.totalDrops,
+      lastDropAt: result.lastDropAt,
+    },
+  });
 });
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

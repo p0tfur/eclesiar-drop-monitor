@@ -46,6 +46,13 @@ export type HitRecordRow = HitRecordInsert & {
   createdAt: string;
 };
 
+export type HitRecordListResult = {
+  rows: HitRecordRow[];
+  totalHits: number;
+  totalDrops: number;
+  lastDropAt: string | null;
+};
+
 let dbPromise: Promise<Database> | null = null;
 
 function ensureDirectoryExists(targetPath: string) {
@@ -257,9 +264,30 @@ export async function listHitRecords(filters: {
   playerName?: string;
   limit?: number;
   afterId?: number;
-}): Promise<HitRecordRow[]> {
+}): Promise<HitRecordListResult> {
   const db = await getDb();
-  const limit = Math.min(Math.max(filters.limit ?? 50, 1), 100);
+  const limit = Math.min(Math.max(filters.limit ?? 50, 1), 500);
+  const queryParams = {
+    ":warId": filters.warId ?? null,
+    ":playerName": filters.playerName ?? null,
+    ":afterId": filters.afterId ?? null,
+  };
+
+  const totals = await db.get<{ totalHits: number; totalDrops: number; lastDropAt: string | null }>(
+    `
+    SELECT
+      COUNT(*) as totalHits,
+      SUM(CASE WHEN is_drop = 1 THEN 1 ELSE 0 END) as totalDrops,
+      MAX(CASE WHEN is_drop = 1 THEN created_at ELSE NULL END) as lastDropAt
+    FROM war_hits
+    WHERE
+      (:warId IS NULL OR war_id = :warId)
+      AND (:playerName IS NULL OR player_name = :playerName)
+      AND (:afterId IS NULL OR id > :afterId)
+  `,
+    queryParams,
+  );
+
   const rows = await db.all<HitRecordRow[]>(
     `
     SELECT
@@ -308,11 +336,14 @@ export async function listHitRecords(filters: {
     LIMIT :limit
   `,
     {
-      ":warId": filters.warId ?? null,
-      ":playerName": filters.playerName ?? null,
-      ":afterId": filters.afterId ?? null,
+      ...queryParams,
       ":limit": limit,
     },
   );
-  return rows;
+  return {
+    rows,
+    totalHits: Number(totals?.totalHits ?? 0),
+    totalDrops: Number(totals?.totalDrops ?? 0),
+    lastDropAt: totals?.lastDropAt ?? null,
+  };
 }
