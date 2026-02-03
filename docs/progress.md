@@ -480,3 +480,15 @@
 - ✅ Wyłączono walidację `trustProxy` w `express-rate-limit` (opcja `validate.trustProxy = false`), aby middleware nie rzucał wyjątkami w reverse proxy.
 
 ---
+
+## 2026 - Drop Stats Filter (Mine vs All)
+
+**Date:** 2026-02-03
+
+#### Changes Implemented:
+
+- ✅ Dodano przełącznik "Tylko ja" w modalu Drop Stats.
+- ✅ Przełącznik steruje tym, czy w `GET /api/hits` wysyłany jest parametr `playerName`.
+- ✅ Ustawienie jest zapamiętywane w GM storage (`dropMonitor.statsOnlyMine`).
+
+---

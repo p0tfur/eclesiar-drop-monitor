@@ -31,6 +31,7 @@
     baseUrl: "dropMonitor.baseUrl",
     apiKey: "dropMonitor.apiKey",
     apiKeyPrompted: "dropMonitor.apiKeyPrompted",
+    statsOnlyMine: "dropMonitor.statsOnlyMine",
   };
 
   const state = {
@@ -47,6 +48,7 @@
   const settings = {
     baseUrl: GM_getValue(STORAGE_KEYS.baseUrl, DEFAULT_BASE_URL),
     apiKey: GM_getValue(STORAGE_KEYS.apiKey, ""),
+    statsOnlyMine: Boolean(GM_getValue(STORAGE_KEYS.statsOnlyMine, true)),
   };
 
   const apiKeyPrompted = Boolean(GM_getValue(STORAGE_KEYS.apiKeyPrompted, false));
@@ -548,8 +550,12 @@
     panel.style.overflowY = "auto";
     panel.style.color = "#f3f4f6";
     panel.innerHTML = `
-      <div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;">
         <h3 style="margin:0;font-size:16px;">Statystyki hitów</h3>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;">
+          <input id="drop-monitor-stats-only-mine" type="checkbox" style="accent-color:#60a5fa;" />
+          Tylko ja
+        </label>
         <button type="button" id="drop-monitor-stats-close" style="background:none;border:none;color:#f3f4f6;font-size:20px;cursor:pointer;">×</button>
       </div>
       <div id="drop-monitor-stats-content" style="font-size:13px;line-height:1.5;">Ładowanie...</div>
@@ -565,6 +571,30 @@
     });
     overlay.querySelector("#drop-monitor-stats-close")?.addEventListener("click", closeStatsModal);
 
+    const onlyMineCheckbox = overlay.querySelector("#drop-monitor-stats-only-mine");
+    if (onlyMineCheckbox) {
+      onlyMineCheckbox.checked = Boolean(settings.statsOnlyMine);
+      onlyMineCheckbox.addEventListener("change", async () => {
+        settings.statsOnlyMine = Boolean(onlyMineCheckbox.checked);
+        GM_setValue(STORAGE_KEYS.statsOnlyMine, settings.statsOnlyMine);
+
+        const content = overlay.querySelector("#drop-monitor-stats-content");
+        if (content) {
+          content.textContent = "Ładowanie...";
+        }
+
+        try {
+          const hits = await fetchRecentHits(100, settings.statsOnlyMine);
+          renderStats(content, hits);
+        } catch (error) {
+          console.error("[DropMonitor] Nie udało się pobrać statystyk", error);
+          if (content) {
+            content.textContent = "Nie udało się pobrać danych. Sprawdź konfigurację API.";
+          }
+        }
+      });
+    }
+
     return overlay;
   }
 
@@ -578,7 +608,7 @@
     }
 
     try {
-      const hits = await fetchRecentHits();
+      const hits = await fetchRecentHits(100, settings.statsOnlyMine);
       renderStats(content, hits);
     } catch (error) {
       console.error("[DropMonitor] Nie udało się pobrać statystyk", error);
@@ -596,12 +626,12 @@
     state.statsModalVisible = false;
   }
 
-  async function fetchRecentHits(limit = 100) {
+  async function fetchRecentHits(limit = 100, onlyMine = true) {
     const baseUrl = getApiUrl();
     const params = new URLSearchParams();
     params.set("limit", String(limit));
     const player = parsePlayerInfo();
-    if (player?.name) {
+    if (onlyMine && player?.name) {
       params.set("playerName", player.name.trim());
     }
     const url = `${baseUrl}?${params.toString()}`;
