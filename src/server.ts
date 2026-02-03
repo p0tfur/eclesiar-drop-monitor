@@ -68,11 +68,41 @@ app.use("/api", apiLimiter);
 const staticDir = path.resolve(__dirname, "../public");
 app.use("/scripts", express.static(staticDir));
 
+function getProvidedApiKey(req: Request): string {
+  const headerKey = String(req.header("x-drop-api-key") || "").trim();
+  if (headerKey) {
+    return headerKey;
+  }
+
+  const authHeader = String(req.header("authorization") || "").trim();
+  if (!authHeader) {
+    return "";
+  }
+
+  const bearerPrefix = "bearer ";
+  if (authHeader.toLowerCase().startsWith(bearerPrefix)) {
+    return authHeader.slice(bearerPrefix.length).trim();
+  }
+
+  return "";
+}
+
+function maskApiKey(value: string): string {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) {
+    return "(missing)";
+  }
+  if (trimmed.length <= 8) {
+    return "(redacted)";
+  }
+  return `${trimmed.slice(0, 3)}…${trimmed.slice(-3)} (len=${trimmed.length})`;
+}
+
 function ensureAuthorized(req: Request): boolean {
   if (!config.apiKeys.length) {
     return true;
   }
-  const provided = String(req.header("x-drop-api-key") || "").trim();
+  const provided = getProvidedApiKey(req);
   return !!provided && config.apiKeys.includes(provided);
 }
 
@@ -95,7 +125,19 @@ app.get("/api/health", (_req: Request, res: Response) => {
 app.post("/api/hits", postLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!ensureAuthorized(req)) {
-      return res.status(401).json({ status: "error", message: "Invalid API key" });
+      const provided = getProvidedApiKey(req);
+      console.warn("[DropMonitor] Unauthorized request", {
+        origin: req.header("origin") || null,
+        ip: req.ip,
+        userAgent: req.header("user-agent") || null,
+        hasApiKey: Boolean(provided),
+        apiKey: maskApiKey(provided),
+      });
+      return res.status(401).json({
+        status: "error",
+        message: "Invalid API key",
+        requiredHeader: "x-drop-api-key",
+      });
     }
 
     const parsed = hitPayloadSchema.safeParse(req.body);

@@ -364,3 +364,27 @@
 - ✅ Dzięki temu domyślna ścieżka bazy jest poprawna (`/app/data/drop-monitor.db`), a `.env` jest szukany w `/app/.env` jeśli istnieje.
 
 ---
+
+## 2026 - API 401 Diagnostics & Userscript Fix
+
+**Date:** 2026-02-03
+
+#### Problem:
+
+- ✅ Userscript dostawał `401 Unauthorized` na `POST /api/hits`.
+
+#### Changes Implemented:
+
+**1. API Server (server.ts) - lepsza diagnostyka autoryzacji:**
+
+- ✅ Rozszerzono pobieranie klucza API: `x-drop-api-key` lub `Authorization: Bearer <key>`.
+- ✅ Dodano bezpieczne logowanie `401` (origin, IP, user-agent, zamaskowany klucz) bez wycieku sekretów.
+- ✅ Odpowiedź `401` zawiera informację o wymaganym nagłówku (`x-drop-api-key`).
+
+**2. User Script (Eclesiar_Drop_Monitor.user.js) - poprawki integracji:**
+
+- ✅ Naprawiono literówkę w `@require` (`https://https://...` -> poprawny URL).
+- ✅ Rozszerzono obsługę błędów API o treść odpowiedzi (np. `Invalid API key`).
+- ✅ Wyłączono retry przy `401/403` (błędy autoryzacji nie powinny być ponawiane).
+
+---

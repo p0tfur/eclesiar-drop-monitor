@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eclesiar Drop Monitor
 // @namespace    https://eclesiar.com/
-// @version      0.1.0
+// @version      0.1.2
 // @description  Wykrywa dropy podczas bitew, zbiera kontekst gracza/wojny i wysyła dane do centralnego backendu.
 // @author       p0tfur
 // @match        https://eclesiar.com/war/*
@@ -10,7 +10,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
-// @require      https://drop-monitor.example.com/scripts/api.js
+// @require      https://drop-monitor.rpaby.pw/scripts/api.js
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -24,7 +24,7 @@
   const DROP_TITLES = new Set(["Znalazłeś nowy przedmiot!", "You found a new equipment!"]);
 
   const DEFAULT_BASE_URL =
-    (window.EclesiarApi && window.EclesiarApi.dropMonitor?.baseUrl) || "https://drop-monitor.example.com";
+    (window.EclesiarApi && window.EclesiarApi.dropMonitor?.baseUrl) || "https://drop-monitor.rpaby.pw";
   const DEFAULT_ENDPOINT = (window.EclesiarApi && window.EclesiarApi.dropMonitor?.endpoints?.hits) || "/api/hits";
 
   const STORAGE_KEYS = {
@@ -337,12 +337,33 @@
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          throw new Error(`API returned ${response.status}`);
+          let details = "";
+          try {
+            const data = await response.json();
+            if (data && typeof data === "object") {
+              details = data.message || JSON.stringify(data);
+            }
+          } catch (_err) {
+            try {
+              details = await response.text();
+            } catch (_err2) {
+              details = "";
+            }
+          }
+
+          const error = new Error(`API returned ${response.status}${details ? `: ${details}` : ""}`);
+          error.status = response.status;
+          error.details = details;
+          throw error;
         }
         await response.json().catch(() => null);
         return;
       } catch (error) {
         console.warn(`[DropMonitor] Próba ${attempt}/${retries} nieudana`, error);
+        if (error && (error.status === 401 || error.status === 403)) {
+          console.error("[DropMonitor] Brak autoryzacji do API (sprawdź X-DROP-API-KEY)", error);
+          return;
+        }
         if (attempt === retries) {
           console.error("[DropMonitor] Nie udało się wysłać rekordu po wszystkich próbach", error);
         } else {
