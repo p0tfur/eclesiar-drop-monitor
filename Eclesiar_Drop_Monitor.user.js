@@ -32,6 +32,7 @@
     apiKey: "dropMonitor.apiKey",
     apiKeyPrompted: "dropMonitor.apiKeyPrompted",
     statsOnlyMine: "dropMonitor.statsOnlyMine",
+    statsShowAllColumns: "dropMonitor.statsShowAllColumns",
   };
 
   const state = {
@@ -49,6 +50,7 @@
     baseUrl: GM_getValue(STORAGE_KEYS.baseUrl, DEFAULT_BASE_URL),
     apiKey: GM_getValue(STORAGE_KEYS.apiKey, ""),
     statsOnlyMine: Boolean(GM_getValue(STORAGE_KEYS.statsOnlyMine, true)),
+    statsShowAllColumns: Boolean(GM_getValue(STORAGE_KEYS.statsShowAllColumns, false)),
   };
 
   const apiKeyPrompted = Boolean(GM_getValue(STORAGE_KEYS.apiKeyPrompted, false));
@@ -549,17 +551,7 @@
     panel.style.maxHeight = "80vh";
     panel.style.overflowY = "auto";
     panel.style.color = "#f3f4f6";
-    panel.innerHTML = `
-      <div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;">
-        <h3 style="margin:0;font-size:16px;">Statystyki hitów</h3>
-        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;">
-          <input id="drop-monitor-stats-only-mine" type="checkbox" style="accent-color:#60a5fa;" />
-          Tylko ja
-        </label>
-        <button type="button" id="drop-monitor-stats-close" style="background:none;border:none;color:#f3f4f6;font-size:20px;cursor:pointer;">×</button>
-      </div>
-      <div id="drop-monitor-stats-content" style="font-size:13px;line-height:1.5;">Ładowanie...</div>
-    `;
+    panel.innerHTML = `<div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;"><h3 style="margin:0;font-size:16px;">Statystyki hitów</h3><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;"><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-only-mine" type="checkbox" style="accent-color:#60a5fa;" />Tylko ja</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-all-columns" type="checkbox" style="accent-color:#60a5fa;" />Wszystkie kolumny</label></div><button type="button" id="drop-monitor-stats-close" style="background:none;border:none;color:#f3f4f6;font-size:20px;cursor:pointer;">×</button></div><div id="drop-monitor-stats-content" style="font-size:13px;line-height:1.5;">Ładowanie...</div>`;
 
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
@@ -571,27 +563,42 @@
     });
     overlay.querySelector("#drop-monitor-stats-close")?.addEventListener("click", closeStatsModal);
 
+    async function refreshStats() {
+      const content = overlay.querySelector("#drop-monitor-stats-content");
+      if (content) {
+        content.textContent = "Ładowanie...";
+      }
+
+      try {
+        const hits = await fetchRecentHits(100, settings.statsOnlyMine);
+        renderStats(content, hits, {
+          showAllColumns: settings.statsShowAllColumns,
+        });
+      } catch (error) {
+        console.error("[DropMonitor] Nie udało się pobrać statystyk", error);
+        if (content) {
+          content.textContent = "Nie udało się pobrać danych. Sprawdź konfigurację API.";
+        }
+      }
+    }
+
     const onlyMineCheckbox = overlay.querySelector("#drop-monitor-stats-only-mine");
     if (onlyMineCheckbox) {
       onlyMineCheckbox.checked = Boolean(settings.statsOnlyMine);
       onlyMineCheckbox.addEventListener("change", async () => {
         settings.statsOnlyMine = Boolean(onlyMineCheckbox.checked);
         GM_setValue(STORAGE_KEYS.statsOnlyMine, settings.statsOnlyMine);
+        await refreshStats();
+      });
+    }
 
-        const content = overlay.querySelector("#drop-monitor-stats-content");
-        if (content) {
-          content.textContent = "Ładowanie...";
-        }
-
-        try {
-          const hits = await fetchRecentHits(100, settings.statsOnlyMine);
-          renderStats(content, hits);
-        } catch (error) {
-          console.error("[DropMonitor] Nie udało się pobrać statystyk", error);
-          if (content) {
-            content.textContent = "Nie udało się pobrać danych. Sprawdź konfigurację API.";
-          }
-        }
+    const allColumnsCheckbox = overlay.querySelector("#drop-monitor-stats-all-columns");
+    if (allColumnsCheckbox) {
+      allColumnsCheckbox.checked = Boolean(settings.statsShowAllColumns);
+      allColumnsCheckbox.addEventListener("change", async () => {
+        settings.statsShowAllColumns = Boolean(allColumnsCheckbox.checked);
+        GM_setValue(STORAGE_KEYS.statsShowAllColumns, settings.statsShowAllColumns);
+        await refreshStats();
       });
     }
 
@@ -609,7 +616,9 @@
 
     try {
       const hits = await fetchRecentHits(100, settings.statsOnlyMine);
-      renderStats(content, hits);
+      renderStats(content, hits, {
+        showAllColumns: settings.statsShowAllColumns,
+      });
     } catch (error) {
       console.error("[DropMonitor] Nie udało się pobrać statystyk", error);
       if (content) {
@@ -657,7 +666,7 @@
     }
   }
 
-  function renderStats(container, hits) {
+  function renderStats(container, hits, options = {}) {
     if (!container) return;
     const total = hits.length;
     const drops = hits.filter((hit) => hit.isDrop).length;
@@ -665,50 +674,123 @@
     const lastDrop = hits.find((hit) => hit.isDrop);
     const lastDropText = lastDrop ? new Date(lastDrop.createdAt).toLocaleString() : "Brak";
 
+    const showAllColumns = Boolean(options.showAllColumns);
+
+    function normalizeValue(value) {
+      if (value == null) return "";
+      if (typeof value === "string") return value;
+      if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
+      if (typeof value === "boolean") return value ? "true" : "false";
+      try {
+        return JSON.stringify(value);
+      } catch (_err) {
+        return String(value);
+      }
+    }
+
+    function escapeHtml(text) {
+      return String(text || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;");
+    }
+
+    function formatDropChance(value) {
+      if (value == null) return "";
+      const num = typeof value === "number" ? value : Number.parseFloat(String(value));
+      if (!Number.isFinite(num)) return String(value);
+      return num.toFixed(2);
+    }
+
+    function buildWhereCell(hit) {
+      const parts = [];
+      if (hit.regionName) {
+        parts.push(hit.regionName);
+      }
+      if (hit.warId != null) {
+        parts.push(`#${hit.warId}`);
+      }
+      const label = parts.join(" ") || hit.warUrl || "";
+      if (hit.warUrl) {
+        const safeHref = escapeHtml(hit.warUrl);
+        const safeLabel = escapeHtml(label || hit.warUrl);
+        return `<a href="${safeHref}" target="_blank" rel="noreferrer" style="color:#93c5fd;text-decoration:none;">${safeLabel}</a>`;
+      }
+      return escapeHtml(label);
+    }
+
+    if (showAllColumns) {
+      const preferred = [
+        "createdAt",
+        "hitId",
+        "playerName",
+        "buttonLabel",
+        "isDrop",
+        "dropChance",
+        "warId",
+        "regionName",
+        "warUrl",
+        "dropHeading",
+        "dropDescription",
+      ];
+
+      const keys = new Set();
+      hits.slice(0, 10).forEach((hit) => {
+        Object.keys(hit || {}).forEach((key) => keys.add(key));
+      });
+
+      const remaining = Array.from(keys).filter((k) => !preferred.includes(k));
+      remaining.sort((a, b) => a.localeCompare(b));
+      const columns = preferred.filter((k) => keys.has(k)).concat(remaining);
+
+      const head = columns
+        .map(
+          (k) => `<th style="text-align:left;padding:4px 8px;border-bottom:1px solid #374151;">${escapeHtml(k)}</th>`,
+        )
+        .join("");
+
+      const rows = hits
+        .slice(0, 10)
+        .map((hit) => {
+          const tds = columns
+            .map((key) => {
+              const raw = hit ? hit[key] : "";
+              let value = normalizeValue(raw);
+              if (key === "warUrl" && value) {
+                const safeHref = escapeHtml(value);
+                value = `<a href="${safeHref}" target="_blank" rel="noreferrer" style="color:#93c5fd;text-decoration:none;">${safeHref}</a>`;
+              } else {
+                value = escapeHtml(value);
+              }
+              if (value.length > 120) {
+                value = `${value.slice(0, 120)}…`;
+              }
+              return `<td style="padding:4px 8px;border-bottom:1px solid #1f2937;vertical-align:top;white-space:nowrap;">${value}</td>`;
+            })
+            .join("");
+          return `<tr>${tds}</tr>`;
+        })
+        .join("");
+
+      const summaryHtml = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${total}</div><div style="font-size:12px;color:#9ca3af;">Ostatnie hity</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${drops}</div><div style="font-size:12px;color:#9ca3af;">Dropy</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${rate}%</div><div style="font-size:12px;color:#9ca3af;">Drop rate</div></div></div>`;
+      const rowsHtml = rows || '<tr><td colspan="99" style="padding:8px 0;text-align:center;">Brak danych</td></tr>';
+      container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><div style="overflow-x:auto;border:1px solid #1f2937;border-radius:8px;"><table style="width:max-content;min-width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>${head}</tr></thead><tbody>${rowsHtml}</tbody></table></div><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano maks. 10 z ${total} pobranych rekordów.</p>`;
+
+      return;
+    }
+
     const rowsHtml = hits
       .slice(0, 10)
       .map((hit) => {
         const time = new Date(hit.createdAt || hit.hitTriggeredAt || Date.now()).toLocaleTimeString();
-        return `<tr>
-          <td>${time}</td>
-          <td>${hit.buttonLabel || "Walcz"}</td>
-          <td style="text-align:center;">${hit.isDrop ? "🎁" : "-"}</td>
-          <td>${hit.dropHeading || ""}</td>
-        </tr>`;
+        return `<tr><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(time)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(hit.buttonLabel || "Walcz")}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:center;">${hit.isDrop ? "🎁" : "-"}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:right;">${escapeHtml(formatDropChance(hit.dropChance))}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${buildWhereCell(hit)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(hit.dropHeading || hit.dropDescription || "")}</td></tr>`;
       })
       .join("");
 
-    container.innerHTML = `
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-        <div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;">
-          <div style="font-size:26px;font-weight:600;">${total}</div>
-          <div style="font-size:12px;color:#9ca3af;">Ostatnie hity</div>
-        </div>
-        <div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;">
-          <div style="font-size:26px;font-weight:600;">${drops}</div>
-          <div style="font-size:12px;color:#9ca3af;">Dropy</div>
-        </div>
-        <div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;">
-          <div style="font-size:26px;font-weight:600;">${rate}%</div>
-          <div style="font-size:12px;color:#9ca3af;">Drop rate</div>
-        </div>
-      </div>
-      <p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p>
-      <table style="width:100%;border-collapse:collapse;font-size:12px;">
-        <thead>
-          <tr>
-            <th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Czas</th>
-            <th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Akcja</th>
-            <th style="text-align:center;padding:4px 0;border-bottom:1px solid #374151;">Drop</th>
-            <th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Opis</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowsHtml || '<tr><td colspan="4" style="padding:8px 0;text-align:center;">Brak danych</td></tr>'}
-        </tbody>
-      </table>
-      <p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano maks. 10 z ${total} pobranych rekordów.</p>
-    `;
+    const summaryHtml = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${total}</div><div style="font-size:12px;color:#9ca3af;">Ostatnie hity</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${drops}</div><div style="font-size:12px;color:#9ca3af;">Dropy</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${rate}%</div><div style="font-size:12px;color:#9ca3af;">Drop rate</div></div></div>`;
+    const bodyHtml = rowsHtml || '<tr><td colspan="6" style="padding:8px 0;text-align:center;">Brak danych</td></tr>';
+    container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Czas</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Akcja</th><th style="text-align:center;padding:4px 0;border-bottom:1px solid #374151;">Drop</th><th style="text-align:right;padding:4px 0;border-bottom:1px solid #374151;">Chance</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Gdzie</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Opis</th></tr></thead><tbody>${bodyHtml}</tbody></table><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano maks. 10 z ${total} pobranych rekordów.</p>`;
   }
 
   observeNotifications();

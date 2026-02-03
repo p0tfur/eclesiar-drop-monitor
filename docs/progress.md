@@ -492,3 +492,16 @@
 - ✅ Ustawienie jest zapamiętywane w GM storage (`dropMonitor.statsOnlyMine`).
 
 ---
+
+## 2026 - Drop Stats Table Details (Chance/Where) + All Columns
+
+**Date:** 2026-02-03
+
+#### Changes Implemented:
+
+- ✅ W widoku tabeli dodano `Chance` (drop chance dla hita) oraz `Gdzie` (region/warId + link do `warUrl` jeśli dostępny).
+- ✅ Dodano przełącznik "Wszystkie kolumny" w modalu, który renderuje szeroką tabelę z dynamicznie wykrytymi kluczami z rekordów.
+- ✅ Ustawienie "Wszystkie kolumny" jest zapamiętywane w GM storage (`dropMonitor.statsShowAllColumns`).
+- ✅ Zrefaktorowano HTML renderowania statystyk, aby userscript mieścił się w limicie 800 linii.
+
+---
