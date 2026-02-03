@@ -30,6 +30,7 @@
   const STORAGE_KEYS = {
     baseUrl: "dropMonitor.baseUrl",
     apiKey: "dropMonitor.apiKey",
+    apiKeyPrompted: "dropMonitor.apiKeyPrompted",
   };
 
   const state = {
@@ -47,6 +48,17 @@
     baseUrl: GM_getValue(STORAGE_KEYS.baseUrl, DEFAULT_BASE_URL),
     apiKey: GM_getValue(STORAGE_KEYS.apiKey, ""),
   };
+
+  const apiKeyPrompted = Boolean(GM_getValue(STORAGE_KEYS.apiKeyPrompted, false));
+  if (!settings.apiKey && !apiKeyPrompted) {
+    GM_setValue(STORAGE_KEYS.apiKeyPrompted, true);
+    const value = prompt("Drop Monitor: Podaj X-DROP-API-KEY (anuluj aby pominąć)", "");
+    const normalized = (value || "").trim();
+    if (normalized) {
+      settings.apiKey = normalized;
+      GM_setValue(STORAGE_KEYS.apiKey, normalized);
+    }
+  }
 
   console.info("[DropMonitor] Konfiguracja", {
     baseUrl: settings.baseUrl || DEFAULT_BASE_URL,

@@ -416,3 +416,18 @@
 - ✅ Dodano log startowy pokazujący `baseUrl`, `endpoint` i czy `apiKey` jest ustawiony (bez wypisywania klucza).
 
 ---
+
+## 2026 - Userscript First-Run API Key Prompt
+
+**Date:** 2026-02-03
+
+#### Problem:
+
+- ✅ `apiKey` w userscripcie jest przechowywany w GM storage, więc przy pierwszym uruchomieniu jest pusty i nagłówek autoryzacji nie jest wysyłany.
+
+#### Changes Implemented:
+
+- ✅ Dodano jednorazowy prompt o `X-DROP-API-KEY` przy pierwszym uruchomieniu (gdy klucz nie jest ustawiony).
+- ✅ Klucz jest zapisywany do GM storage, aby kolejne requesty automatycznie wysyłały `X-DROP-API-KEY`.
+
+---
