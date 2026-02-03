@@ -505,3 +505,16 @@
 - ✅ Zrefaktorowano HTML renderowania statystyk, aby userscript mieścił się w limicie 800 linii.
 
 ---
+
+## 2026 - Drop Stats Row Limit + Wider Modal For All Columns
+
+**Date:** 2026-02-03
+
+#### Changes Implemented:
+
+- ✅ Dodano wybór liczby wyświetlanych rekordów (np. 10/25/50/100/200/500) w nagłówku modala Drop Stats.
+- ✅ Ustawienie jest zapamiętywane w GM storage (`dropMonitor.statsRowLimit`).
+- ✅ Backend jest odpytywany z limitem równym `max(100, statsRowLimit)` aby dało się wyświetlić więcej niż 100 rekordów.
+- ✅ W trybie "Wszystkie kolumny" modal jest szerszy i wyższy (ułatwia przeglądanie szerokiej tabeli).
+
+---

@@ -33,6 +33,7 @@
     apiKeyPrompted: "dropMonitor.apiKeyPrompted",
     statsOnlyMine: "dropMonitor.statsOnlyMine",
     statsShowAllColumns: "dropMonitor.statsShowAllColumns",
+    statsRowLimit: "dropMonitor.statsRowLimit",
   };
 
   const state = {
@@ -51,6 +52,7 @@
     apiKey: GM_getValue(STORAGE_KEYS.apiKey, ""),
     statsOnlyMine: Boolean(GM_getValue(STORAGE_KEYS.statsOnlyMine, true)),
     statsShowAllColumns: Boolean(GM_getValue(STORAGE_KEYS.statsShowAllColumns, false)),
+    statsRowLimit: Math.max(1, Math.min(500, Number(GM_getValue(STORAGE_KEYS.statsRowLimit, 10)) || 10)),
   };
 
   const apiKeyPrompted = Boolean(GM_getValue(STORAGE_KEYS.apiKeyPrompted, false));
@@ -512,18 +514,20 @@
     const btn = document.createElement("button");
     btn.id = "drop-monitor-stats-button";
     btn.textContent = "📊 Drop Stats";
-    btn.style.position = "fixed";
-    btn.style.bottom = "100px";
-    btn.style.right = "20px";
-    btn.style.zIndex = "99999";
-    btn.style.padding = "10px 14px";
-    btn.style.borderRadius = "999px";
-    btn.style.border = "none";
-    btn.style.background = "#1f2937";
-    btn.style.color = "#fff";
-    btn.style.fontSize = "13px";
-    btn.style.boxShadow = "0 10px 25px rgba(0,0,0,0.35)";
-    btn.style.cursor = "pointer";
+    Object.assign(btn.style, {
+      position: "fixed",
+      bottom: "100px",
+      right: "20px",
+      zIndex: "99999",
+      padding: "10px 14px",
+      borderRadius: "999px",
+      border: "none",
+      background: "#1f2937",
+      color: "#fff",
+      fontSize: "13px",
+      boxShadow: "0 10px 25px rgba(0,0,0,0.35)",
+      cursor: "pointer",
+    });
     btn.addEventListener("click", () => openStatsModal());
     document.body.appendChild(btn);
   }
@@ -534,51 +538,59 @@
 
     overlay = document.createElement("div");
     overlay.id = "drop-monitor-stats-modal";
-    overlay.style.position = "fixed";
-    overlay.style.inset = "0";
-    overlay.style.background = "rgba(0,0,0,0.75)";
-    overlay.style.display = "none";
-    overlay.style.alignItems = "center";
-    overlay.style.justifyContent = "center";
-    overlay.style.zIndex = "100000";
+    Object.assign(overlay.style, {
+      position: "fixed",
+      inset: "0",
+      background: "rgba(0,0,0,0.75)",
+      display: "none",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: "100000",
+    });
 
     const panel = document.createElement("div");
     panel.className = "drop-monitor-stats-panel";
-    panel.style.background = "#111827";
-    panel.style.borderRadius = "10px";
-    panel.style.padding = "20px";
-    panel.style.width = "min(420px, 90vw)";
-    panel.style.maxHeight = "80vh";
-    panel.style.overflowY = "auto";
-    panel.style.color = "#f3f4f6";
-    panel.innerHTML = `<div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;"><h3 style="margin:0;font-size:16px;">Statystyki hitów</h3><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;"><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-only-mine" type="checkbox" style="accent-color:#60a5fa;" />Tylko ja</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-all-columns" type="checkbox" style="accent-color:#60a5fa;" />Wszystkie kolumny</label></div><button type="button" id="drop-monitor-stats-close" style="background:none;border:none;color:#f3f4f6;font-size:20px;cursor:pointer;">×</button></div><div id="drop-monitor-stats-content" style="font-size:13px;line-height:1.5;">Ładowanie...</div>`;
+    const panelWide = () =>
+      settings.statsShowAllColumns
+        ? { width: "min(1200px, 96vw)", maxHeight: "92vh" }
+        : { width: "min(420px, 90vw)", maxHeight: "80vh" };
+    Object.assign(panel.style, {
+      background: "#111827",
+      borderRadius: "10px",
+      padding: "20px",
+      overflowY: "auto",
+      color: "#f3f4f6",
+      ...panelWide(),
+    });
+    panel.innerHTML = `<div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;"><h3 style="margin:0;font-size:16px;">Statystyki hitów</h3><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;"><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-only-mine" type="checkbox" style="accent-color:#60a5fa;" />Tylko ja</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-all-columns" type="checkbox" style="accent-color:#60a5fa;" />Wszystkie kolumny</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;">Wiersze <select id="drop-monitor-stats-row-limit" style="background:#0b1220;color:#f3f4f6;border:1px solid #374151;border-radius:6px;padding:2px 6px;outline:none;"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="500">500</option></select></label></div><button type="button" id="drop-monitor-stats-close" style="background:none;border:none;color:#f3f4f6;font-size:20px;cursor:pointer;">×</button></div><div id="drop-monitor-stats-content" style="font-size:13px;line-height:1.5;">Ładowanie...</div>`;
 
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
 
     overlay.addEventListener("click", (event) => {
-      if (event.target === overlay) {
-        closeStatsModal();
-      }
+      if (event.target === overlay) closeStatsModal();
     });
     overlay.querySelector("#drop-monitor-stats-close")?.addEventListener("click", closeStatsModal);
 
+    const updatePanelSize = () => {
+      const panelEl = overlay.querySelector(".drop-monitor-stats-panel");
+      if (panelEl) Object.assign(panelEl.style, panelWide());
+    };
+
     async function refreshStats() {
       const content = overlay.querySelector("#drop-monitor-stats-content");
-      if (content) {
-        content.textContent = "Ładowanie...";
-      }
+      if (content) content.textContent = "Ładowanie...";
 
       try {
-        const hits = await fetchRecentHits(100, settings.statsOnlyMine);
+        updatePanelSize();
+        const hits = await fetchRecentHits(Math.max(100, settings.statsRowLimit), settings.statsOnlyMine);
         renderStats(content, hits, {
           showAllColumns: settings.statsShowAllColumns,
+          rowLimit: settings.statsRowLimit,
         });
       } catch (error) {
         console.error("[DropMonitor] Nie udało się pobrać statystyk", error);
-        if (content) {
-          content.textContent = "Nie udało się pobrać danych. Sprawdź konfigurację API.";
-        }
+        if (content) content.textContent = "Nie udało się pobrać danych. Sprawdź konfigurację API.";
       }
     }
 
@@ -602,29 +614,26 @@
       });
     }
 
+    const rowLimitSelect = overlay.querySelector("#drop-monitor-stats-row-limit");
+    if (rowLimitSelect) {
+      rowLimitSelect.value = String(settings.statsRowLimit || 10);
+      rowLimitSelect.addEventListener("change", async () => {
+        settings.statsRowLimit = Math.max(1, Math.min(500, Number(rowLimitSelect.value) || 10));
+        GM_setValue(STORAGE_KEYS.statsRowLimit, settings.statsRowLimit);
+        await refreshStats();
+      });
+    }
+
+    overlay._dropMonitorRefreshStats = refreshStats;
+
     return overlay;
   }
 
   async function openStatsModal() {
     const overlay = createStatsModalShell();
-    const content = overlay.querySelector("#drop-monitor-stats-content");
     overlay.style.display = "flex";
     state.statsModalVisible = true;
-    if (content) {
-      content.textContent = "Ładowanie...";
-    }
-
-    try {
-      const hits = await fetchRecentHits(100, settings.statsOnlyMine);
-      renderStats(content, hits, {
-        showAllColumns: settings.statsShowAllColumns,
-      });
-    } catch (error) {
-      console.error("[DropMonitor] Nie udało się pobrać statystyk", error);
-      if (content) {
-        content.textContent = "Nie udało się pobrać danych. Sprawdź konfigurację API.";
-      }
-    }
+    await overlay._dropMonitorRefreshStats?.();
   }
 
   function closeStatsModal() {
@@ -675,6 +684,9 @@
     const lastDropText = lastDrop ? new Date(lastDrop.createdAt).toLocaleString() : "Brak";
 
     const showAllColumns = Boolean(options.showAllColumns);
+    const rowLimit = Math.max(1, Math.min(500, Number(options.rowLimit) || 10));
+    const viewHits = hits.slice(0, rowLimit);
+    const shown = viewHits.length;
 
     function normalizeValue(value) {
       if (value == null) return "";
@@ -736,9 +748,7 @@
       ];
 
       const keys = new Set();
-      hits.slice(0, 10).forEach((hit) => {
-        Object.keys(hit || {}).forEach((key) => keys.add(key));
-      });
+      viewHits.forEach((hit) => Object.keys(hit || {}).forEach((key) => keys.add(key)));
 
       const remaining = Array.from(keys).filter((k) => !preferred.includes(k));
       remaining.sort((a, b) => a.localeCompare(b));
@@ -749,9 +759,7 @@
           (k) => `<th style="text-align:left;padding:4px 8px;border-bottom:1px solid #374151;">${escapeHtml(k)}</th>`,
         )
         .join("");
-
-      const rows = hits
-        .slice(0, 10)
+      const rows = viewHits
         .map((hit) => {
           const tds = columns
             .map((key) => {
@@ -760,12 +768,8 @@
               if (key === "warUrl" && value) {
                 const safeHref = escapeHtml(value);
                 value = `<a href="${safeHref}" target="_blank" rel="noreferrer" style="color:#93c5fd;text-decoration:none;">${safeHref}</a>`;
-              } else {
-                value = escapeHtml(value);
-              }
-              if (value.length > 120) {
-                value = `${value.slice(0, 120)}…`;
-              }
+              } else value = escapeHtml(value);
+              if (value.length > 120) value = `${value.slice(0, 120)}…`;
               return `<td style="padding:4px 8px;border-bottom:1px solid #1f2937;vertical-align:top;white-space:nowrap;">${value}</td>`;
             })
             .join("");
@@ -775,13 +779,12 @@
 
       const summaryHtml = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${total}</div><div style="font-size:12px;color:#9ca3af;">Ostatnie hity</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${drops}</div><div style="font-size:12px;color:#9ca3af;">Dropy</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${rate}%</div><div style="font-size:12px;color:#9ca3af;">Drop rate</div></div></div>`;
       const rowsHtml = rows || '<tr><td colspan="99" style="padding:8px 0;text-align:center;">Brak danych</td></tr>';
-      container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><div style="overflow-x:auto;border:1px solid #1f2937;border-radius:8px;"><table style="width:max-content;min-width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>${head}</tr></thead><tbody>${rowsHtml}</tbody></table></div><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano maks. 10 z ${total} pobranych rekordów.</p>`;
+      container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><div style="overflow-x:auto;border:1px solid #1f2937;border-radius:8px;"><table style="width:max-content;min-width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>${head}</tr></thead><tbody>${rowsHtml}</tbody></table></div><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano ${shown} z ${total} pobranych rekordów.</p>`;
 
       return;
     }
 
-    const rowsHtml = hits
-      .slice(0, 10)
+    const rowsHtml = viewHits
       .map((hit) => {
         const time = new Date(hit.createdAt || hit.hitTriggeredAt || Date.now()).toLocaleTimeString();
         return `<tr><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(time)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(hit.buttonLabel || "Walcz")}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:center;">${hit.isDrop ? "🎁" : "-"}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:right;">${escapeHtml(formatDropChance(hit.dropChance))}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${buildWhereCell(hit)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(hit.dropHeading || hit.dropDescription || "")}</td></tr>`;
@@ -790,7 +793,7 @@
 
     const summaryHtml = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${total}</div><div style="font-size:12px;color:#9ca3af;">Ostatnie hity</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${drops}</div><div style="font-size:12px;color:#9ca3af;">Dropy</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${rate}%</div><div style="font-size:12px;color:#9ca3af;">Drop rate</div></div></div>`;
     const bodyHtml = rowsHtml || '<tr><td colspan="6" style="padding:8px 0;text-align:center;">Brak danych</td></tr>';
-    container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Czas</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Akcja</th><th style="text-align:center;padding:4px 0;border-bottom:1px solid #374151;">Drop</th><th style="text-align:right;padding:4px 0;border-bottom:1px solid #374151;">Chance</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Gdzie</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Opis</th></tr></thead><tbody>${bodyHtml}</tbody></table><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano maks. 10 z ${total} pobranych rekordów.</p>`;
+    container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Czas</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Akcja</th><th style="text-align:center;padding:4px 0;border-bottom:1px solid #374151;">Drop</th><th style="text-align:right;padding:4px 0;border-bottom:1px solid #374151;">Chance</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Gdzie</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Opis</th></tr></thead><tbody>${bodyHtml}</tbody></table><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano ${shown} z ${total} pobranych rekordów.</p>`;
   }
 
   observeNotifications();
