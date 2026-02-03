@@ -360,6 +360,9 @@
             const data = await response.json();
             if (data && typeof data === "object") {
               details = data.message || JSON.stringify(data);
+              if (Array.isArray(data.issues) && data.issues.length) {
+                console.warn("[DropMonitor] Błąd walidacji payload", data.issues);
+              }
             }
           } catch (_err) {
             try {
@@ -380,6 +383,10 @@
         console.warn(`[DropMonitor] Próba ${attempt}/${retries} nieudana`, error);
         if (error && (error.status === 401 || error.status === 403)) {
           console.error("[DropMonitor] Brak autoryzacji do API (sprawdź X-DROP-API-KEY)", error);
+          return;
+        }
+        if (error && error.status === 400) {
+          console.error("[DropMonitor] Payload odrzucony przez API (400) - to nie jest błąd tymczasowy", error);
           return;
         }
         if (attempt === retries) {

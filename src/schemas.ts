@@ -1,8 +1,11 @@
 import { z } from "zod";
 
 const optionalNumber = z
-  .union([z.number(), z.string()])
+  .union([z.number(), z.string(), z.null()])
   .transform((value) => {
+    if (value === null) {
+      return undefined;
+    }
     if (typeof value === "number") {
       return Number.isNaN(value) ? undefined : value;
     }
@@ -19,8 +22,13 @@ const optionalInteger = optionalNumber.transform((value) => {
 });
 
 const optionalString = z
-  .union([z.string(), z.number()])
-  .transform((value) => String(value).trim())
+  .union([z.string(), z.number(), z.null()])
+  .transform((value) => {
+    if (value === null) {
+      return undefined;
+    }
+    return String(value).trim();
+  })
   .optional();
 
 export const hitPayloadSchema = z.object({

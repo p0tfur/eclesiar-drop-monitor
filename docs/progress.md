@@ -431,3 +431,28 @@
 - ✅ Klucz jest zapisywany do GM storage, aby kolejne requesty automatycznie wysyłały `X-DROP-API-KEY`.
 
 ---
+
+## 2026 - Payload Validation Fix (400 Invalid payload)
+
+**Date:** 2026-02-03
+
+#### Problem:
+
+- ✅ API zwracało `400 Invalid payload` mimo poprawnej autoryzacji (część pól była wysyłana jako `null`).
+
+#### Changes Implemented:
+
+**1. Schema (schemas.ts):**
+
+- ✅ Rozszerzono `optionalString`/`optionalNumber` aby akceptowały `null` i mapowały je na `undefined`.
+
+**2. API Server (server.ts):**
+
+- ✅ Dodano logowanie `issues` z Zod przy błędnym payload.
+
+**3. User Script (Eclesiar_Drop_Monitor.user.js):**
+
+- ✅ Przy `400` wypisywane są `issues` z API (jeśli są dostępne).
+- ✅ Wyłączono retry dla `400` (walidacja nie jest błędem tymczasowym).
+
+---

@@ -147,6 +147,9 @@ app.post("/api/hits", postLimiter, async (req: Request, res: Response, next: Nex
 
     const parsed = hitPayloadSchema.safeParse(req.body);
     if (!parsed.success) {
+      console.warn("[DropMonitor] Invalid payload", {
+        issues: parsed.error.issues,
+      });
       return res.status(400).json({ status: "error", message: "Invalid payload", issues: parsed.error.issues });
     }
 
