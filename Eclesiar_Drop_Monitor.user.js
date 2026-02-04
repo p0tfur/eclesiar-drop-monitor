@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eclesiar Drop Monitor
 // @namespace    https://eclesiar.com/
-// @version      0.2.0
+// @version      0.2.1
 // @description  Wykrywa dropy podczas bitew, zbiera kontekst gracza/wojny i wysyła dane do centralnego backendu.
 // @author       p0tfur
 // @match        https://eclesiar.com/war/*
@@ -22,8 +22,6 @@
 
   const DROP_MESSAGES = new Set(["znalazles nowy przedmiot", "you found a new equipment"]);
   const USE_POPUP_DETECTION = false;
-  const PENDING_HIT_TTL_MS = 120000;
-  const PENDING_HIT_MAX = 1000;
 
   const DEFAULT_BASE_URL =
     (window.EclesiarApi && window.EclesiarApi.dropMonitor?.baseUrl) || "https://drop-monitor.rpaby.pw";
@@ -42,15 +40,12 @@
     processedNotifications: new Set(),
     cachedDropChance: null,
     cachedDropChanceFetchedAt: 0,
-    lastHitId: null,
-    lastHitTimestamp: null,
     statsModalVisible: false,
     statsViewMode: "hits",
     domCache: new Map(),
     lastCacheTime: 0,
     notificationRescanTimer: null,
     notificationRescanUntil: 0,
-    pendingHits: [],
     networkHookInstalled: false,
     processedFightResponses: new Set(),
   };
@@ -107,11 +102,6 @@
     const element = document.querySelector(selector);
     state.domCache.set(selector, { element, timestamp: now });
     return element;
-  }
-
-  function clearDomCache() {
-    state.domCache.clear();
-    state.lastCacheTime = Date.now();
   }
 
   function safeText(node) {
@@ -353,42 +343,8 @@
     return `hit-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   }
 
-  function prunePendingHits() {
-    const now = Date.now();
-    state.pendingHits = state.pendingHits.filter((item) => now - item.createdAt <= PENDING_HIT_TTL_MS);
-    if (state.pendingHits.length > PENDING_HIT_MAX) {
-      state.pendingHits = state.pendingHits.slice(state.pendingHits.length - PENDING_HIT_MAX);
-    }
-  }
-
-  function enqueuePendingHit(hitId, triggeredAt) {
-    state.pendingHits.push({
-      hitId,
-      triggeredAt,
-      createdAt: Date.now(),
-      responseAttached: false,
-    });
-    prunePendingHits();
-  }
-
-  function markPendingHitForFightResponse() {
-    prunePendingHits();
-    for (const item of state.pendingHits) {
-      if (!item.responseAttached) {
-        item.responseAttached = true;
-        return item;
-      }
-    }
-    return null;
-  }
-
-  function consumePendingHitForDrop() {
-    prunePendingHits();
-    if (!state.pendingHits.length) {
-      return null;
-    }
-    return state.pendingHits.shift() || null;
-  }
+  // Button clicks are not a reliable hit source (spam, 429, no energy, captcha, lag).
+  // For statistics we treat POST /war/fight (code=200) responses as the source of truth.
 
   async function buildHitPayload(options) {
     const war = collectWarContext();
@@ -438,18 +394,37 @@
     };
   }
 
+  function parseFightRequestBody(body) {
+    if (!body || typeof body !== "string") return null;
+    try {
+      const params = new URLSearchParams(body);
+      const roundId = params.get("round_id");
+      const weaponId = params.get("weapon_id");
+      const side = params.get("side");
+      return {
+        roundId: roundId ? Number.parseInt(roundId, 10) || roundId : null,
+        weaponId: weaponId || null,
+        side: side || null,
+      };
+    } catch (_err) {
+      return null;
+    }
+  }
+
   function buildFightResponseFingerprint(url, payload) {
     const drop = payload?.data?.drop || {};
     const timestamp = payload?.data?.timestamp ?? "na";
     return `${url}|${timestamp}|${drop.seed ?? "na"}|${drop.chance ?? "na"}`;
   }
 
-  function processFightResponsePayload(url, payload) {
+  function processFightResponsePayload(url, payload, requestBody) {
     if (!isWarFightUrl(url)) return;
     const fightDrop = normalizeFightDropPayload(payload);
     if (!fightDrop) return;
     const inferredIsDrop =
-      Number.isFinite(fightDrop.seed) && Number.isFinite(fightDrop.chance) && Number(fightDrop.seed) <= Number(fightDrop.chance);
+      Number.isFinite(fightDrop.seed) &&
+      Number.isFinite(fightDrop.chance) &&
+      Number(fightDrop.seed) <= Number(fightDrop.chance);
     const fingerprint = buildFightResponseFingerprint(url, payload);
     if (state.processedFightResponses.has(fingerprint)) return;
     state.processedFightResponses.add(fingerprint);
@@ -458,9 +433,18 @@
       state.processedFightResponses = new Set(keep);
     }
 
-    const pendingHit = markPendingHitForFightResponse();
-    const hitId = pendingHit?.hitId || state.lastHitId || generateHitId();
-    const triggeredAt = pendingHit?.triggeredAt || state.lastHitTimestamp || new Date().toISOString();
+    const warId = parseWarId();
+    const responseTimestamp = payload?.data?.timestamp;
+    const triggeredAt =
+      typeof responseTimestamp === "number" && Number.isFinite(responseTimestamp)
+        ? new Date(responseTimestamp * 1000).toISOString()
+        : new Date().toISOString();
+
+    const safeTs =
+      typeof responseTimestamp === "number" && Number.isFinite(responseTimestamp)
+        ? String(responseTimestamp)
+        : String(Date.now());
+    const hitId = `fight-${warId ?? "na"}-${safeTs}-${fightDrop.seed ?? "na"}-${fightDrop.chance ?? "na"}`;
     void sendHitRecord({
       hitId,
       triggeredAt,
@@ -480,6 +464,7 @@
         responseCode: payload?.code ?? null,
         responseDescription: payload?.description ?? null,
         inferredIsDrop,
+        request: parseFightRequestBody(requestBody),
       },
     });
   }
@@ -490,13 +475,14 @@
 
     const originalFetch = window.fetch.bind(window);
     window.fetch = async function (...args) {
+      const requestUrl = String(args?.[0]?.url || args?.[0] || "");
+      const requestBody = args?.[1]?.body ?? null;
       const response = await originalFetch(...args);
       try {
-        const requestUrl = String(args?.[0]?.url || args?.[0] || "");
         if (isWarFightUrl(requestUrl)) {
           const clone = response.clone();
           const payload = await clone.json();
-          processFightResponsePayload(requestUrl, payload);
+          processFightResponsePayload(requestUrl, payload, requestBody);
         }
       } catch (_error) {}
       return response;
@@ -511,12 +497,13 @@
     };
 
     XMLHttpRequest.prototype.send = function (...args) {
+      this._dropMonitorBody = args?.[0] ?? null;
       this.addEventListener("load", () => {
         try {
           const url = String(this._dropMonitorUrl || "");
           if (!isWarFightUrl(url)) return;
           const payload = JSON.parse(this.responseText || "{}");
-          processFightResponsePayload(url, payload);
+          processFightResponsePayload(url, payload, this._dropMonitorBody);
         } catch (_error) {}
       });
       return originalXhrSend.apply(this, args);
@@ -616,9 +603,8 @@
       return;
     }
     state.processedNotifications.add(messageId);
-    const pendingHit = consumePendingHitForDrop();
-    const hitId = pendingHit?.hitId || state.lastHitId || generateHitId();
-    const triggeredAt = pendingHit?.triggeredAt || state.lastHitTimestamp || new Date().toISOString();
+    const hitId = generateHitId();
+    const triggeredAt = new Date().toISOString();
     void sendHitRecord({
       hitId,
       triggeredAt,
@@ -631,7 +617,6 @@
       },
       extra: {
         normalizedHeading: normalizeForMatch(heading),
-        pendingHitsLeft: state.pendingHits.length,
         notificationHtml: element.outerHTML,
       },
     });
@@ -727,58 +712,6 @@
     scanExistingNotifications();
     scanDropMessageHeadings();
     scheduleNotificationRescan(4000, 300);
-  }
-
-  function bindFightButton(button) {
-    if (!button || button.dataset.dropMonitorBound === "1") {
-      return;
-    }
-    button.dataset.dropMonitorBound = "1";
-    button.addEventListener(
-      "click",
-      () => {
-        clearDomCache();
-        const hitId = generateHitId();
-        const triggeredAt = new Date().toISOString();
-        state.lastHitId = hitId;
-        state.lastHitTimestamp = triggeredAt;
-        enqueuePendingHit(hitId, triggeredAt);
-        const label = button.dataset.ecOrigFightLabel || safeText(button.querySelector("p")) || safeText(button);
-        if (USE_POPUP_DETECTION) {
-          scheduleNotificationRescan(15000, 200);
-        }
-        void sendHitRecord({
-          hitId,
-          triggeredAt,
-          buttonLabel: label || "Walcz",
-          isDrop: false,
-        });
-      },
-      { capture: true },
-    );
-  }
-
-  function observeFightButtons() {
-    const initialButtons = document.querySelectorAll(".fight-button");
-    initialButtons.forEach(bindFightButton);
-
-    const processButtons = throttle((mutations) => {
-      for (const mutation of mutations) {
-        mutation.addedNodes.forEach((node) => {
-          if (!(node instanceof HTMLElement)) {
-            return;
-          }
-          if (node.matches && node.matches(".fight-button")) {
-            bindFightButton(node);
-          }
-          node.querySelectorAll?.(".fight-button").forEach((btn) => bindFightButton(btn));
-        });
-      }
-    }, 100);
-
-    const observer = new MutationObserver(processButtons);
-
-    observer.observe(document.body, { childList: true, subtree: true });
   }
 
   function ensureStatsButton() {
@@ -1172,7 +1105,8 @@
     const scope = analysis.scope || {};
     const debug = analysis.debugAverages || {};
 
-    const fmtPct = (value) => (typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : "-");
+    const fmtPct = (value) =>
+      typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : "-";
     const fmtNum = (value, digits = 2) =>
       typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "-";
 
@@ -1190,7 +1124,10 @@
     const debugKeys = Object.keys(debug).sort((a, b) => a.localeCompare(b));
     const debugHtml = debugKeys.length
       ? `<div style="margin-top:12px;border:1px solid #1f2937;border-radius:8px;padding:10px;background:#0b1220;"><div style="font-size:12px;color:#9ca3af;margin-bottom:6px;">Srednie skladowe debug</div><div style="display:flex;gap:8px;flex-wrap:wrap;">${debugKeys
-          .map((k) => `<span style="font-size:12px;background:#111827;border:1px solid #1f2937;border-radius:999px;padding:4px 8px;">${k}: ${fmtNum(debug[k], 2)}</span>`)
+          .map(
+            (k) =>
+              `<span style="font-size:12px;background:#111827;border:1px solid #1f2937;border-radius:999px;padding:4px 8px;">${k}: ${fmtNum(debug[k], 2)}</span>`,
+          )
           .join("")}</div></div>`
       : "";
 
@@ -1234,6 +1171,5 @@
   if (USE_POPUP_DETECTION) {
     observeNotifications();
   }
-  observeFightButtons();
   ensureStatsButton();
 })();
