@@ -10,6 +10,7 @@ type ResolvedConfig = {
   allowedOrigins: string[];
   apiKeys: string[];
   trustProxyHops: number;
+  postRateLimitPerMinute: number;
 };
 
 function parseIntEnv(value: string | undefined, fallback: number): number {
@@ -39,4 +40,5 @@ export const config: ResolvedConfig = {
   allowedOrigins: splitEnvList(process.env.DROP_ALLOWED_ORIGINS),
   apiKeys: splitEnvList(process.env.DROP_API_KEYS),
   trustProxyHops: parseIntEnv(process.env.DROP_TRUST_PROXY_HOPS, 1),
+  postRateLimitPerMinute: parseIntEnv(process.env.DROP_POST_RATE_LIMIT_PER_MINUTE, 1000),
 };

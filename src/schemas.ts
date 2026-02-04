@@ -108,6 +108,13 @@ export const hitPayloadSchema = z.object({
       description: optionalString,
     })
     .optional(),
+  fightDrop: z
+    .object({
+      seed: optionalInteger,
+      chance: optionalNumber,
+      debug: z.record(z.any()).optional(),
+    })
+    .optional(),
   extra: z.record(z.any()).optional(),
   metadata: z.record(z.any()).optional(),
 });

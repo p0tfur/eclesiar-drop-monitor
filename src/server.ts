@@ -45,7 +45,7 @@ const apiLimiter = rateLimit({
 
 const postLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: Math.max(100, config.postRateLimitPerMinute),
   standardHeaders: true,
   legacyHeaders: false,
   validate: {
@@ -128,6 +128,17 @@ function serializeExtra(payload: unknown): string | null {
   }
 }
 
+function serializeJson(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  try {
+    return JSON.stringify(payload);
+  } catch (_error) {
+    return null;
+  }
+}
+
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
 });
@@ -191,6 +202,9 @@ app.post("/api/hits", postLimiter, async (req: Request, res: Response, next: Nex
       currencyPln: payload.currencies?.pln ?? null,
       currencyDetails: payload.currencies?.details ?? null,
       dropChance: payload.dropChance ?? null,
+      fightDropSeed: payload.fightDrop?.seed ?? null,
+      fightDropChance: payload.fightDrop?.chance ?? null,
+      fightDropDebug: serializeJson(payload.fightDrop?.debug ?? null),
       dropMessageId: payload.drop?.messageId ?? null,
       dropHeading: payload.drop?.heading ?? null,
       dropDescription: payload.drop?.description ?? null,

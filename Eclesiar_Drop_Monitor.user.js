@@ -1,12 +1,11 @@
 // ==UserScript==
 // @name         Eclesiar Drop Monitor
 // @namespace    https://eclesiar.com/
-// @version      0.1.2
+// @version      0.1.9
 // @description  Wykrywa dropy podczas bitew, zbiera kontekst gracza/wojny i wysyła dane do centralnego backendu.
 // @author       p0tfur
 // @match        https://eclesiar.com/war/*
 // @match        https://www.eclesiar.com/war/*
-// @match        https://apollo.eclesiar.com/war/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -21,7 +20,10 @@
     return;
   }
 
-  const DROP_TITLES = new Set(["Znalazłeś nowy przedmiot!", "You found a new equipment!"]);
+  const DROP_MESSAGES = new Set(["znalazles nowy przedmiot", "you found a new equipment"]);
+  const USE_POPUP_DETECTION = false;
+  const PENDING_HIT_TTL_MS = 120000;
+  const PENDING_HIT_MAX = 1000;
 
   const DEFAULT_BASE_URL =
     (window.EclesiarApi && window.EclesiarApi.dropMonitor?.baseUrl) || "https://drop-monitor.rpaby.pw";
@@ -45,6 +47,11 @@
     statsModalVisible: false,
     domCache: new Map(),
     lastCacheTime: 0,
+    notificationRescanTimer: null,
+    notificationRescanUntil: 0,
+    pendingHits: [],
+    networkHookInstalled: false,
+    processedFightResponses: new Set(),
   };
 
   const settings = {
@@ -108,6 +115,28 @@
 
   function safeText(node) {
     return node ? (node.textContent || "").trim() : "";
+  }
+
+  function normalizeForMatch(value) {
+    const text = String(value || "")
+      .toLowerCase()
+      .trim();
+    if (!text) return "";
+    return text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[!?.,:;]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function isDropNotificationText(heading, fullText) {
+    const normalizedHeading = normalizeForMatch(heading);
+    const normalizedFull = normalizeForMatch(fullText);
+    if (DROP_MESSAGES.has(normalizedHeading)) {
+      return true;
+    }
+    return Array.from(DROP_MESSAGES).some((message) => normalizedFull.includes(message));
   }
 
   function throttle(func, delay) {
@@ -314,6 +343,43 @@
     return `hit-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   }
 
+  function prunePendingHits() {
+    const now = Date.now();
+    state.pendingHits = state.pendingHits.filter((item) => now - item.createdAt <= PENDING_HIT_TTL_MS);
+    if (state.pendingHits.length > PENDING_HIT_MAX) {
+      state.pendingHits = state.pendingHits.slice(state.pendingHits.length - PENDING_HIT_MAX);
+    }
+  }
+
+  function enqueuePendingHit(hitId, triggeredAt) {
+    state.pendingHits.push({
+      hitId,
+      triggeredAt,
+      createdAt: Date.now(),
+      responseAttached: false,
+    });
+    prunePendingHits();
+  }
+
+  function markPendingHitForFightResponse() {
+    prunePendingHits();
+    for (const item of state.pendingHits) {
+      if (!item.responseAttached) {
+        item.responseAttached = true;
+        return item;
+      }
+    }
+    return null;
+  }
+
+  function consumePendingHitForDrop() {
+    prunePendingHits();
+    if (!state.pendingHits.length) {
+      return null;
+    }
+    return state.pendingHits.shift() || null;
+  }
+
   async function buildHitPayload(options) {
     const war = collectWarContext();
     const round = parseRoundInfo();
@@ -326,7 +392,7 @@
       triggeredAt: options.triggeredAt,
       buttonLabel: options.buttonLabel,
       isDrop: options.isDrop,
-      source: "eclesiar-war-drop-monitor",
+      source: options.source || "eclesiar-war-drop-monitor",
       pageUrl: window.location.href,
       war,
       round,
@@ -334,7 +400,116 @@
       currencies,
       dropChance,
       drop: options.dropMeta || undefined,
+      fightDrop: options.fightDrop || undefined,
       extra: options.extra || undefined,
+    };
+  }
+
+  function isWarFightUrl(inputUrl) {
+    const raw = String(inputUrl || "");
+    return raw.includes("/war/fight");
+  }
+
+  function normalizeFightDropPayload(payload) {
+    if (!payload || typeof payload !== "object" || payload.code !== 200) {
+      return null;
+    }
+    const drop = payload?.data?.drop;
+    if (!drop || typeof drop !== "object") {
+      return null;
+    }
+    const chance = parseNumber(drop.chance);
+    const seed = parseNumber(drop.seed);
+    const debug = drop.debug && typeof drop.debug === "object" ? drop.debug : null;
+    return {
+      chance: chance ?? null,
+      seed: seed ?? null,
+      debug,
+    };
+  }
+
+  function buildFightResponseFingerprint(url, payload) {
+    const drop = payload?.data?.drop || {};
+    const timestamp = payload?.data?.timestamp ?? "na";
+    return `${url}|${timestamp}|${drop.seed ?? "na"}|${drop.chance ?? "na"}`;
+  }
+
+  function processFightResponsePayload(url, payload) {
+    if (!isWarFightUrl(url)) return;
+    const fightDrop = normalizeFightDropPayload(payload);
+    if (!fightDrop) return;
+    const inferredIsDrop =
+      Number.isFinite(fightDrop.seed) && Number.isFinite(fightDrop.chance) && Number(fightDrop.seed) <= Number(fightDrop.chance);
+    const fingerprint = buildFightResponseFingerprint(url, payload);
+    if (state.processedFightResponses.has(fingerprint)) return;
+    state.processedFightResponses.add(fingerprint);
+    if (state.processedFightResponses.size > 3000) {
+      const keep = Array.from(state.processedFightResponses).slice(-1500);
+      state.processedFightResponses = new Set(keep);
+    }
+
+    const pendingHit = markPendingHitForFightResponse();
+    const hitId = pendingHit?.hitId || state.lastHitId || generateHitId();
+    const triggeredAt = pendingHit?.triggeredAt || state.lastHitTimestamp || new Date().toISOString();
+    void sendHitRecord({
+      hitId,
+      triggeredAt,
+      buttonLabel: "fight-response",
+      isDrop: inferredIsDrop,
+      source: "eclesiar-war-fight-response",
+      dropMeta: inferredIsDrop
+        ? {
+            messageId: `fight-seed-${fightDrop.seed}-${fightDrop.chance}`,
+            heading: "Fight response drop",
+            description: `seed=${fightDrop.seed}, chance=${fightDrop.chance}`,
+          }
+        : undefined,
+      fightDrop,
+      extra: {
+        responseUrl: url,
+        responseCode: payload?.code ?? null,
+        responseDescription: payload?.description ?? null,
+        inferredIsDrop,
+      },
+    });
+  }
+
+  function installFightResponseNetworkHook() {
+    if (state.networkHookInstalled) return;
+    state.networkHookInstalled = true;
+
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async function (...args) {
+      const response = await originalFetch(...args);
+      try {
+        const requestUrl = String(args?.[0]?.url || args?.[0] || "");
+        if (isWarFightUrl(requestUrl)) {
+          const clone = response.clone();
+          const payload = await clone.json();
+          processFightResponsePayload(requestUrl, payload);
+        }
+      } catch (_error) {}
+      return response;
+    };
+
+    const originalXhrOpen = XMLHttpRequest.prototype.open;
+    const originalXhrSend = XMLHttpRequest.prototype.send;
+
+    XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+      this._dropMonitorUrl = String(url || "");
+      return originalXhrOpen.call(this, method, url, ...rest);
+    };
+
+    XMLHttpRequest.prototype.send = function (...args) {
+      this.addEventListener("load", () => {
+        try {
+          const url = String(this._dropMonitorUrl || "");
+          if (!isWarFightUrl(url)) return;
+          const payload = JSON.parse(this.responseText || "{}");
+          processFightResponsePayload(url, payload);
+        } catch (_error) {}
+      });
+      return originalXhrSend.apply(this, args);
     };
   }
 
@@ -405,20 +580,38 @@
   }
 
   function processNotificationElement(element) {
-    const heading = safeText(element.querySelector("h3"));
-    if (!DROP_TITLES.has(heading)) {
+    if (!USE_POPUP_DETECTION) {
       return;
     }
-    const messageId = element.getAttribute("data-messageid") || `${heading}-${Date.now()}`;
+    const heading = safeText(element.querySelector("h3, h2, .notification-title, .title, [class*='title'], strong, b"));
+    const descriptionNode = element.querySelector("p, .notification-description, .description, [class*='description']");
+    const dropDescription = safeText(descriptionNode);
+    const fullText = safeText(element);
+    if (!isDropNotificationText(heading, `${heading} ${dropDescription} ${fullText}`)) {
+      return;
+    }
+    let messageId =
+      element.getAttribute("data-messageid") ||
+      element.getAttribute("data-id") ||
+      element.querySelector("[data-messageid]")?.getAttribute("data-messageid") ||
+      element.querySelector(".close-notification[data-messageid]")?.getAttribute("data-messageid");
+    if (!messageId) {
+      messageId = element.dataset.dropMonitorLocalId;
+      if (!messageId) {
+        messageId = `notif-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+        element.dataset.dropMonitorLocalId = messageId;
+      }
+    }
     if (state.processedNotifications.has(messageId)) {
       return;
     }
     state.processedNotifications.add(messageId);
-    const dropDescription = safeText(element.querySelector("p"));
-    const hitId = state.lastHitId || generateHitId();
+    const pendingHit = consumePendingHitForDrop();
+    const hitId = pendingHit?.hitId || state.lastHitId || generateHitId();
+    const triggeredAt = pendingHit?.triggeredAt || state.lastHitTimestamp || new Date().toISOString();
     void sendHitRecord({
       hitId,
-      triggeredAt: state.lastHitTimestamp || new Date().toISOString(),
+      triggeredAt,
       buttonLabel: "drop-notification",
       isDrop: true,
       dropMeta: {
@@ -427,37 +620,103 @@
         description: dropDescription,
       },
       extra: {
+        normalizedHeading: normalizeForMatch(heading),
+        pendingHitsLeft: state.pendingHits.length,
         notificationHtml: element.outerHTML,
       },
     });
   }
 
   function scanExistingNotifications() {
-    document.querySelectorAll(".notification-popup").forEach((node) => {
+    document.querySelectorAll(".notification-popup, [class*='notification']").forEach((node) => {
       processNotificationElement(node);
     });
   }
 
-  function observeNotifications() {
-    const processAddedNodes = throttle((mutations) => {
-      for (const mutation of mutations) {
-        mutation.addedNodes.forEach((node) => {
-          if (!(node instanceof HTMLElement)) return;
-          if (node.classList.contains("notification-popup")) {
-            processNotificationElement(node);
-            return;
-          }
-          node.querySelectorAll?.(".notification-popup").forEach((child) => {
-            processNotificationElement(child);
-          });
-        });
+  function scanDropMessageHeadings() {
+    document.querySelectorAll("h3, h2, .notification-title, .title, [class*='title'], strong, b").forEach((node) => {
+      const headingText = safeText(node);
+      if (!isDropNotificationText(headingText, headingText)) {
+        return;
       }
-    }, 100);
+      const container =
+        node.closest?.(".notification-popup, [class*='notification']") ||
+        node.parentElement?.closest?.(".notification-popup, [class*='notification']") ||
+        node.parentElement;
+      if (container instanceof HTMLElement) {
+        processNotificationElement(container);
+      }
+    });
+  }
+
+  function scheduleNotificationRescan(durationMs = 12000, intervalMs = 250) {
+    const now = Date.now();
+    state.notificationRescanUntil = Math.max(state.notificationRescanUntil || 0, now + durationMs);
+    if (state.notificationRescanTimer) {
+      return;
+    }
+
+    state.notificationRescanTimer = setInterval(() => {
+      scanExistingNotifications();
+      scanDropMessageHeadings();
+      if (Date.now() >= state.notificationRescanUntil) {
+        clearInterval(state.notificationRescanTimer);
+        state.notificationRescanTimer = null;
+        state.notificationRescanUntil = 0;
+      }
+    }, intervalMs);
+  }
+
+  function observeNotifications() {
+    const processAddedNodes = (mutations) => {
+      for (const mutation of mutations) {
+        const candidates = new Set();
+
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof HTMLElement) {
+            if (node.classList.contains("notification-popup")) {
+              candidates.add(node);
+            }
+            node.querySelectorAll?.(".notification-popup").forEach((child) => candidates.add(child));
+            const closestPopup = node.closest?.(".notification-popup");
+            if (closestPopup) {
+              candidates.add(closestPopup);
+            }
+          } else if (node instanceof Text && node.parentElement) {
+            const closestPopup = node.parentElement.closest?.(".notification-popup");
+            if (closestPopup) {
+              candidates.add(closestPopup);
+            }
+          }
+        });
+
+        if (mutation.type === "attributes" || mutation.type === "characterData") {
+          const targetElement =
+            mutation.target instanceof HTMLElement ? mutation.target : mutation.target?.parentElement;
+          const closestPopup =
+            targetElement?.closest?.(".notification-popup") || targetElement?.closest?.("[class*='notification']");
+          if (closestPopup) {
+            candidates.add(closestPopup);
+          }
+        }
+
+        candidates.forEach((popup) => processNotificationElement(popup));
+      }
+      scanDropMessageHeadings();
+    };
 
     const observer = new MutationObserver(processAddedNodes);
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["class", "style", "data-messageid", "data-id"],
+    });
     scanExistingNotifications();
+    scanDropMessageHeadings();
+    scheduleNotificationRescan(4000, 300);
   }
 
   function bindFightButton(button) {
@@ -470,12 +729,17 @@
       () => {
         clearDomCache();
         const hitId = generateHitId();
+        const triggeredAt = new Date().toISOString();
         state.lastHitId = hitId;
-        state.lastHitTimestamp = new Date().toISOString();
+        state.lastHitTimestamp = triggeredAt;
+        enqueuePendingHit(hitId, triggeredAt);
         const label = button.dataset.ecOrigFightLabel || safeText(button.querySelector("p")) || safeText(button);
+        if (USE_POPUP_DETECTION) {
+          scheduleNotificationRescan(15000, 200);
+        }
         void sendHitRecord({
           hitId,
-          triggeredAt: state.lastHitTimestamp,
+          triggeredAt,
           buttonLabel: label || "Walcz",
           isDrop: false,
         });
@@ -729,6 +993,26 @@
       return num.toFixed(2);
     }
 
+    function formatFightDebug(value) {
+      if (!value) return "";
+      if (typeof value === "string") {
+        try {
+          const parsed = JSON.parse(value);
+          return formatFightDebug(parsed);
+        } catch (_err) {
+          return value.length > 60 ? `${value.slice(0, 60)}...` : value;
+        }
+      }
+      if (typeof value !== "object") return String(value);
+      const parts = [];
+      if (value.base != null) parts.push(`b:${value.base}`);
+      if (value.equipment != null) parts.push(`eq:${value.equipment}`);
+      if (value.event != null) parts.push(`ev:${value.event}`);
+      if (value.militaryPassive != null) parts.push(`mp:${value.militaryPassive}`);
+      if (value.militaryActive != null) parts.push(`ma:${value.militaryActive}`);
+      return parts.join(" ");
+    }
+
     function buildWhereCell(hit) {
       const parts = [];
       if (hit.regionName) {
@@ -754,6 +1038,9 @@
         "buttonLabel",
         "isDrop",
         "dropChance",
+        "fightDropChance",
+        "fightDropSeed",
+        "fightDropDebug",
         "warId",
         "regionName",
         "warUrl",
@@ -801,16 +1088,26 @@
     const rowsHtml = viewHits
       .map((hit) => {
         const time = new Date(hit.createdAt || hit.hitTriggeredAt || Date.now()).toLocaleTimeString();
-        return `<tr><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(time)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(hit.buttonLabel || "Walcz")}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:center;">${hit.isDrop ? "🎁" : "-"}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:right;">${escapeHtml(formatDropChance(hit.dropChance))}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${buildWhereCell(hit)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(hit.dropHeading || hit.dropDescription || "")}</td></tr>`;
+        const fightInfo = [
+          hit.fightDropChance != null ? `ch:${formatDropChance(hit.fightDropChance)}` : "",
+          hit.fightDropSeed != null ? `seed:${hit.fightDropSeed}` : "",
+          formatFightDebug(hit.fightDropDebug),
+        ]
+          .filter(Boolean)
+          .join(" | ");
+        return `<tr><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(time)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(hit.buttonLabel || "Walcz")}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:center;">${hit.isDrop ? "🎁" : "-"}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:right;">${escapeHtml(formatDropChance(hit.dropChance))}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(fightInfo)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${buildWhereCell(hit)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(hit.dropHeading || hit.dropDescription || "")}</td></tr>`;
       })
       .join("");
 
     const summaryHtml = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${total}</div><div style="font-size:12px;color:#9ca3af;">Wszystkie hity w bazie</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${drops}</div><div style="font-size:12px;color:#9ca3af;">Wszystkie dropy w bazie</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${rate}%</div><div style="font-size:12px;color:#9ca3af;">Drop rate (baza)</div></div></div>`;
-    const bodyHtml = rowsHtml || '<tr><td colspan="6" style="padding:8px 0;text-align:center;">Brak danych</td></tr>';
-    container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Czas</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Akcja</th><th style="text-align:center;padding:4px 0;border-bottom:1px solid #374151;">Drop</th><th style="text-align:right;padding:4px 0;border-bottom:1px solid #374151;">Chance</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Gdzie</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Opis</th></tr></thead><tbody>${bodyHtml}</tbody></table><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano ${shown} z ${totalFetched} pobranych rekordow (w bazie: ${total}).</p>`;
+    const bodyHtml = rowsHtml || '<tr><td colspan="7" style="padding:8px 0;text-align:center;">Brak danych</td></tr>';
+    container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Czas</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Akcja</th><th style="text-align:center;padding:4px 0;border-bottom:1px solid #374151;">Drop</th><th style="text-align:right;padding:4px 0;border-bottom:1px solid #374151;">Chance</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Fight API</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Gdzie</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Opis</th></tr></thead><tbody>${bodyHtml}</tbody></table><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano ${shown} z ${totalFetched} pobranych rekordow (w bazie: ${total}).</p>`;
   }
 
-  observeNotifications();
+  installFightResponseNetworkHook();
+  if (USE_POPUP_DETECTION) {
+    observeNotifications();
+  }
   observeFightButtons();
   ensureStatsButton();
 })();
