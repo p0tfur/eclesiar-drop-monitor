@@ -56,6 +56,36 @@ export type HitRecordListResult = {
   lastDropAt: string | null;
 };
 
+export type HitAnalysisResult = {
+  scope: {
+    warId: number | null;
+    playerName: string | null;
+    days: number | null;
+    rowCount: number;
+  };
+  roll: {
+    denominator: number | null;
+    minSeed: number | null;
+    maxSeed: number | null;
+    minChance: number | null;
+    maxChance: number | null;
+    avgChance: number | null;
+  };
+  totals: {
+    hits: number;
+    observedDrops: number;
+    observedDropRate: number | null;
+    expectedDrops: number | null;
+    expectedDropRate: number | null;
+    currentDryStreak: number | null;
+    maxDryStreak: number | null;
+  };
+  debugAverages: Record<string, number>;
+  daily: Array<{ date: string; hits: number; observedDrops: number; expectedDrops: number | null }>;
+  seedHistogram: Array<{ from: number; to: number; count: number }>;
+  dryStreakHistogram: Array<{ from: number; to: number; count: number }>;
+};
+
 let dbPromise: Promise<Database> | null = null;
 
 function ensureDirectoryExists(targetPath: string) {
@@ -374,5 +404,249 @@ export async function listHitRecords(filters: {
     totalHits: Number(totals?.totalHits ?? 0),
     totalDrops: Number(totals?.totalDrops ?? 0),
     lastDropAt: totals?.lastDropAt ?? null,
+  };
+}
+
+function computeDenominator(maxSeed: number | null): number | null {
+  if (maxSeed == null || !Number.isFinite(maxSeed) || maxSeed <= 0) {
+    return null;
+  }
+  const digits = Math.max(1, String(Math.trunc(maxSeed)).length);
+  return Math.pow(10, digits);
+}
+
+function safeJsonParse(text: string | null): any | null {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (_err) {
+    return null;
+  }
+}
+
+export async function analyzeHitRecords(filters: {
+  warId?: number;
+  playerName?: string;
+  days?: number;
+  limit?: number;
+}): Promise<HitAnalysisResult> {
+  const db = await getDb();
+  const queryParams: Record<string, unknown> = {
+    ":warId": filters.warId ?? null,
+    ":playerName": filters.playerName ?? null,
+  };
+
+  const days = typeof filters.days === "number" && Number.isFinite(filters.days) && filters.days > 0 ? filters.days : null;
+  const sinceClause = days ? "AND created_at >= datetime('now', :sinceExpr)" : "";
+  if (days) {
+    queryParams[":sinceExpr"] = `-${Math.trunc(days)} days`;
+  }
+
+  const limit = Math.min(Math.max(filters.limit ?? 200000, 1), 500000);
+
+  const rows = await db.all<
+    Array<{
+      createdAt: string;
+      isDrop: number;
+      fightDropSeed: number | null;
+      fightDropChance: number | null;
+      fightDropDebug: string | null;
+    }>
+  >(
+    `
+    SELECT
+      created_at as createdAt,
+      is_drop as isDrop,
+      fight_drop_seed as fightDropSeed,
+      fight_drop_chance as fightDropChance,
+      fight_drop_debug as fightDropDebug
+    FROM war_hits
+    WHERE
+      (:warId IS NULL OR war_id = :warId)
+      AND (:playerName IS NULL OR player_name = :playerName)
+      ${sinceClause}
+    ORDER BY created_at ASC
+    LIMIT :limit
+  `,
+    {
+      ...queryParams,
+      ":limit": limit,
+    },
+  );
+
+  let observedDrops = 0;
+  let expectedDropsSum: number | null = 0;
+  let chanceSum = 0;
+  let chanceCount = 0;
+
+  let minSeed: number | null = null;
+  let maxSeed: number | null = null;
+  let minChance: number | null = null;
+  let maxChance: number | null = null;
+
+  const debugSum: Record<string, number> = {};
+  const debugCount: Record<string, number> = {};
+
+  const dailyMap = new Map<string, { hits: number; observedDrops: number; chanceSum: number; chanceCount: number }>();
+
+  // Streaks
+  let currentDry = 0;
+  let maxDry = 0;
+  const dryStreaks: number[] = [];
+
+  for (const row of rows) {
+    const seed = typeof row.fightDropSeed === "number" && Number.isFinite(row.fightDropSeed) ? row.fightDropSeed : null;
+    const chance =
+      typeof row.fightDropChance === "number" && Number.isFinite(row.fightDropChance) ? row.fightDropChance : null;
+    const inferredDrop = Boolean(row.isDrop === 1) || (seed != null && chance != null && seed <= chance);
+
+    if (inferredDrop) {
+      observedDrops += 1;
+      dryStreaks.push(currentDry);
+      if (currentDry > maxDry) maxDry = currentDry;
+      currentDry = 0;
+    } else {
+      currentDry += 1;
+    }
+
+    if (seed != null) {
+      minSeed = minSeed == null ? seed : Math.min(minSeed, seed);
+      maxSeed = maxSeed == null ? seed : Math.max(maxSeed, seed);
+    }
+    if (chance != null) {
+      minChance = minChance == null ? chance : Math.min(minChance, chance);
+      maxChance = maxChance == null ? chance : Math.max(maxChance, chance);
+      chanceSum += chance;
+      chanceCount += 1;
+    }
+
+    // Debug components
+    const debugObj = safeJsonParse(row.fightDropDebug);
+    if (debugObj && typeof debugObj === "object") {
+      for (const [key, value] of Object.entries(debugObj)) {
+        if (typeof value !== "number" || !Number.isFinite(value)) continue;
+        debugSum[key] = (debugSum[key] || 0) + value;
+        debugCount[key] = (debugCount[key] || 0) + 1;
+      }
+    }
+
+    // Daily grouping (UTC date, based on stored created_at)
+    const date = String(row.createdAt || "").slice(0, 10);
+    if (date) {
+      const day = dailyMap.get(date) || { hits: 0, observedDrops: 0, chanceSum: 0, chanceCount: 0 };
+      day.hits += 1;
+      if (inferredDrop) day.observedDrops += 1;
+      if (chance != null) {
+        day.chanceSum += chance;
+        day.chanceCount += 1;
+      }
+      dailyMap.set(date, day);
+    }
+  }
+
+  // If there was a trailing dry streak without a drop, include it in maxDry.
+  if (currentDry > maxDry) maxDry = currentDry;
+
+  const hits = rows.length;
+  const denom = computeDenominator(maxSeed);
+  if (!denom || chanceCount === 0) {
+    expectedDropsSum = null;
+  } else {
+    // Interpret chance as threshold in [0..denom). Expected p ~= chance/denom.
+    expectedDropsSum = chanceSum / denom;
+  }
+
+  const avgChance = chanceCount ? chanceSum / chanceCount : null;
+  const observedDropRate = hits ? observedDrops / hits : null;
+  const expectedDropRate = expectedDropsSum != null && hits ? expectedDropsSum / hits : null;
+
+  const debugAverages: Record<string, number> = {};
+  for (const key of Object.keys(debugSum)) {
+    const cnt = debugCount[key] || 0;
+    if (cnt) {
+      debugAverages[key] = debugSum[key] / cnt;
+    }
+  }
+
+  // Daily series (sorted)
+  const daily: HitAnalysisResult["daily"] = Array.from(dailyMap.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, day]) => {
+      const expectedDrops = denom && day.chanceCount ? day.chanceSum / denom : null;
+      return { date, hits: day.hits, observedDrops: day.observedDrops, expectedDrops };
+    });
+
+  // Seed histogram (10 bins)
+  const seedHistogram: HitAnalysisResult["seedHistogram"] = [];
+  if (denom) {
+    const bins = 10;
+    const binSize = Math.max(1, Math.floor(denom / bins));
+    const binCounts = new Array(bins).fill(0);
+    for (const row of rows) {
+      const seed = typeof row.fightDropSeed === "number" && Number.isFinite(row.fightDropSeed) ? row.fightDropSeed : null;
+      if (seed == null) continue;
+      const idx = Math.min(bins - 1, Math.max(0, Math.floor(seed / binSize)));
+      binCounts[idx] += 1;
+    }
+    for (let i = 0; i < bins; i++) {
+      seedHistogram.push({ from: i * binSize, to: (i + 1) * binSize - 1, count: binCounts[i] });
+    }
+  }
+
+  // Dry streak histogram (0-9, 10-19, ..., 100+)
+  const dryStreakHistogram: HitAnalysisResult["dryStreakHistogram"] = [];
+  const buckets = [0, 10, 20, 30, 40, 50, 75, 100];
+  const bucketCounts = new Array(buckets.length + 1).fill(0);
+  const allDry = dryStreaks.length ? dryStreaks : [];
+  for (const len of allDry) {
+    let placed = false;
+    for (let i = 0; i < buckets.length; i++) {
+      const from = buckets[i];
+      const to = (buckets[i + 1] ?? Infinity) - 1;
+      if (len >= from && len <= to) {
+        bucketCounts[i] += 1;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      bucketCounts[buckets.length] += 1;
+    }
+  }
+  for (let i = 0; i < buckets.length; i++) {
+    const from = buckets[i];
+    const to = (buckets[i + 1] ?? 101) - 1;
+    dryStreakHistogram.push({ from, to, count: bucketCounts[i] });
+  }
+  dryStreakHistogram.push({ from: 100, to: 1000000, count: bucketCounts[buckets.length] });
+
+  return {
+    scope: {
+      warId: filters.warId ?? null,
+      playerName: filters.playerName ?? null,
+      days,
+      rowCount: hits,
+    },
+    roll: {
+      denominator: denom,
+      minSeed,
+      maxSeed,
+      minChance,
+      maxChance,
+      avgChance,
+    },
+    totals: {
+      hits,
+      observedDrops,
+      observedDropRate,
+      expectedDrops: expectedDropsSum,
+      expectedDropRate,
+      currentDryStreak: hits ? currentDry : null,
+      maxDryStreak: hits ? maxDry : null,
+    },
+    debugAverages,
+    daily,
+    seedHistogram,
+    dryStreakHistogram,
   };
 }

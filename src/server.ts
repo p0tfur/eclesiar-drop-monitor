@@ -5,8 +5,8 @@ import helmet from "helmet";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 import { config } from "./config";
-import { initDb, insertHitRecord, listHitRecords } from "./db";
-import { hitPayloadSchema, listQuerySchema } from "./schemas";
+import { initDb, insertHitRecord, listHitRecords, analyzeHitRecords } from "./db";
+import { hitPayloadSchema, listQuerySchema, analysisQuerySchema } from "./schemas";
 
 void initDb().catch((err) => {
   console.error("[DropMonitor] Failed to initialize database", err);
@@ -238,6 +238,16 @@ app.get("/api/hits", async (req: Request, res: Response) => {
       lastDropAt: result.lastDropAt,
     },
   });
+});
+
+app.get("/api/analysis", async (req: Request, res: Response) => {
+  const parsed = analysisQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ status: "error", message: "Invalid query", issues: parsed.error.issues });
+  }
+
+  const result = await analyzeHitRecords(parsed.data);
+  return res.json({ status: "ok", data: result });
 });
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

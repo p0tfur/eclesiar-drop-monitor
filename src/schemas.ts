@@ -129,3 +129,12 @@ export const listQuerySchema = z.object({
 });
 
 export type ListQuery = z.infer<typeof listQuerySchema>;
+
+export const analysisQuerySchema = z.object({
+  warId: optionalInteger,
+  playerName: optionalString,
+  days: optionalInteger,
+  limit: optionalInteger,
+});
+
+export type AnalysisQuery = z.infer<typeof analysisQuerySchema>;
