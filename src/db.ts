@@ -109,10 +109,14 @@ export type HitAnalysisResult = {
     rangeAboveMaxSamples: number;
     rangeWithinRate: number | null;
     avgDeclaredSpan: number | null;
+    avgDamageToMax: number | null;
+    avgDamagePosition: number | null;
+    missRateComparable: number | null;
     histogram: Array<{ from: number; to: number; count: number }>;
     hitHistogram: Array<{ from: number; to: number; count: number }>;
     declaredMinHistogram: Array<{ from: number; to: number; count: number }>;
     declaredMaxHistogram: Array<{ from: number; to: number; count: number }>;
+    positionHistogram: Array<{ from: number; to: number; count: number }>;
   };
   dryStreakHistogram: Array<{ from: number; to: number; count: number }>;
 };
@@ -574,6 +578,11 @@ export async function analyzeHitRecords(filters: {
   let rangeAboveMaxCount = 0;
   let declaredSpanSum = 0;
   let declaredSpanCount = 0;
+  let damageToMaxSum = 0;
+  let damageToMaxCount = 0;
+  let damagePositionSum = 0;
+  let damagePositionCount = 0;
+  let comparableMissCount = 0;
 
   const debugSum: Record<string, number> = {};
   const debugCount: Record<string, number> = {};
@@ -649,12 +658,30 @@ export async function analyzeHitRecords(filters: {
       Number.isFinite(row.maxDamage)
     ) {
       rangeComparableCount += 1;
+      if (row.damage === 0) {
+        comparableMissCount += 1;
+      }
       if (row.damage < row.minDamage) {
         rangeBelowMinCount += 1;
       } else if (row.damage > row.maxDamage) {
         rangeAboveMaxCount += 1;
       } else {
         rangeWithinCount += 1;
+      }
+      if (row.maxDamage > 0) {
+        const ratio = row.damage / row.maxDamage;
+        if (Number.isFinite(ratio)) {
+          damageToMaxSum += ratio;
+          damageToMaxCount += 1;
+        }
+      }
+      const span = row.maxDamage - row.minDamage;
+      if (span > 0) {
+        const pos = (row.damage - row.minDamage) / span;
+        if (Number.isFinite(pos)) {
+          damagePositionSum += pos;
+          damagePositionCount += 1;
+        }
       }
     }
     if (typeof row.minDamage === "number" && Number.isFinite(row.minDamage) && typeof row.maxDamage === "number" && Number.isFinite(row.maxDamage)) {
@@ -767,6 +794,34 @@ export async function analyzeHitRecords(filters: {
   );
   const declaredMinHistogram = buildHistogram(rows.map((row) => row.minDamage), 100);
   const declaredMaxHistogram = buildHistogram(rows.map((row) => row.maxDamage), 100);
+  const positionHistogram: Array<{ from: number; to: number; count: number }> = (() => {
+    const bins = 10;
+    const counts = new Array(bins).fill(0);
+    for (const row of rows) {
+      if (
+        typeof row.damage !== "number" ||
+        !Number.isFinite(row.damage) ||
+        typeof row.minDamage !== "number" ||
+        !Number.isFinite(row.minDamage) ||
+        typeof row.maxDamage !== "number" ||
+        !Number.isFinite(row.maxDamage)
+      ) {
+        continue;
+      }
+      const span = row.maxDamage - row.minDamage;
+      if (span <= 0) continue;
+      const pos = (row.damage - row.minDamage) / span;
+      if (!Number.isFinite(pos)) continue;
+      const clamped = Math.max(0, Math.min(0.999999, pos));
+      const idx = Math.min(bins - 1, Math.max(0, Math.floor(clamped * bins)));
+      counts[idx] += 1;
+    }
+    const hist: Array<{ from: number; to: number; count: number }> = [];
+    for (let i = 0; i < bins; i++) {
+      hist.push({ from: i / bins, to: (i + 1) / bins, count: counts[i] });
+    }
+    return hist;
+  })();
 
   // Dry streak histogram (0-9, 10-19, ..., 100+)
   const dryStreakHistogram: HitAnalysisResult["dryStreakHistogram"] = [];
@@ -843,10 +898,14 @@ export async function analyzeHitRecords(filters: {
       rangeAboveMaxSamples: rangeAboveMaxCount,
       rangeWithinRate: rangeComparableCount ? rangeWithinCount / rangeComparableCount : null,
       avgDeclaredSpan: declaredSpanCount ? declaredSpanSum / declaredSpanCount : null,
+      avgDamageToMax: damageToMaxCount ? damageToMaxSum / damageToMaxCount : null,
+      avgDamagePosition: damagePositionCount ? damagePositionSum / damagePositionCount : null,
+      missRateComparable: rangeComparableCount ? comparableMissCount / rangeComparableCount : null,
       histogram: damageHistogram,
       hitHistogram,
       declaredMinHistogram,
       declaredMaxHistogram,
+      positionHistogram,
     },
     dryStreakHistogram,
   };

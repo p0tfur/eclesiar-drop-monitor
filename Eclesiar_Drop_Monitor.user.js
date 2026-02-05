@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eclesiar Drop Monitor
 // @namespace    https://eclesiar.com/
-// @version      0.2.3
+// @version      0.2.10
 // @description  Wykrywa dropy podczas bitew, zbiera kontekst gracza/wojny i wysyła dane do centralnego backendu.
 // @author       p0tfur
 // @match        https://eclesiar.com/war/*
@@ -16,7 +16,56 @@
 (function () {
   "use strict";
 
+  const LOG_MAX = 80;
+  const logLines = [];
+  function pushLog(message, data) {
+    const ts = new Date().toLocaleTimeString();
+    let line = `[${ts}] ${message}`;
+    if (data !== undefined) {
+      try {
+        line += ` ${typeof data === "string" ? data : JSON.stringify(data)}`;
+      } catch (_err) {
+        line += ` ${String(data)}`;
+      }
+    }
+    logLines.push(line);
+    while (logLines.length > LOG_MAX) logLines.shift();
+  }
+
+  const gmGetValue =
+    typeof GM_getValue === "function"
+      ? GM_getValue
+      : (key, fallback) => {
+          try {
+            const raw = localStorage.getItem(`drop-monitor:${key}`);
+            if (raw == null) return fallback;
+            return JSON.parse(raw);
+          } catch (_err) {
+            return fallback;
+          }
+        };
+  const gmSetValue =
+    typeof GM_setValue === "function"
+      ? GM_setValue
+      : (key, value) => {
+          try {
+            localStorage.setItem(`drop-monitor:${key}`, JSON.stringify(value));
+          } catch (_err) {}
+        };
+  const gmRegisterMenuCommand =
+    typeof GM_registerMenuCommand === "function" ? GM_registerMenuCommand : (_label, _handler) => {};
+
+  pushLog("start", {
+    href: window.location.href,
+    path: window.location.pathname,
+    userAgent: navigator.userAgent,
+    gmGetValue: typeof GM_getValue,
+    gmSetValue: typeof GM_setValue,
+    gmRegisterMenuCommand: typeof GM_registerMenuCommand,
+  });
+
   if (!/\/(?:war|battle)\/(\d+)/.test(window.location.pathname)) {
+    pushLog("early-return:not-war-page");
     return;
   }
 
@@ -51,21 +100,21 @@
   };
 
   const settings = {
-    baseUrl: GM_getValue(STORAGE_KEYS.baseUrl, DEFAULT_BASE_URL),
-    apiKey: GM_getValue(STORAGE_KEYS.apiKey, ""),
-    statsOnlyMine: Boolean(GM_getValue(STORAGE_KEYS.statsOnlyMine, true)),
-    statsShowAllColumns: Boolean(GM_getValue(STORAGE_KEYS.statsShowAllColumns, false)),
-    statsRowLimit: Math.max(1, Math.min(500, Number(GM_getValue(STORAGE_KEYS.statsRowLimit, 10)) || 10)),
+    baseUrl: gmGetValue(STORAGE_KEYS.baseUrl, DEFAULT_BASE_URL),
+    apiKey: gmGetValue(STORAGE_KEYS.apiKey, ""),
+    statsOnlyMine: Boolean(gmGetValue(STORAGE_KEYS.statsOnlyMine, true)),
+    statsShowAllColumns: Boolean(gmGetValue(STORAGE_KEYS.statsShowAllColumns, false)),
+    statsRowLimit: Math.max(1, Math.min(500, Number(gmGetValue(STORAGE_KEYS.statsRowLimit, 10)) || 10)),
   };
 
-  const apiKeyPrompted = Boolean(GM_getValue(STORAGE_KEYS.apiKeyPrompted, false));
+  const apiKeyPrompted = Boolean(gmGetValue(STORAGE_KEYS.apiKeyPrompted, false));
   if (!settings.apiKey && !apiKeyPrompted) {
-    GM_setValue(STORAGE_KEYS.apiKeyPrompted, true);
+    gmSetValue(STORAGE_KEYS.apiKeyPrompted, true);
     const value = prompt("Drop Monitor: Podaj X-DROP-API-KEY (anuluj aby pominąć)", "");
     const normalized = (value || "").trim();
     if (normalized) {
       settings.apiKey = normalized;
-      GM_setValue(STORAGE_KEYS.apiKey, normalized);
+      gmSetValue(STORAGE_KEYS.apiKey, normalized);
     }
   }
 
@@ -75,21 +124,21 @@
     hasApiKey: Boolean(settings.apiKey),
   });
 
-  GM_registerMenuCommand("Drop Monitor: Ustaw bazowy URL API", () => {
+  gmRegisterMenuCommand("Drop Monitor: Ustaw bazowy URL API", () => {
     const value = prompt("Podaj bazowy URL API drop-monitor", settings.baseUrl || DEFAULT_BASE_URL);
     if (value) {
       const trimmed = value.trim();
       settings.baseUrl = trimmed;
-      GM_setValue(STORAGE_KEYS.baseUrl, trimmed);
+      gmSetValue(STORAGE_KEYS.baseUrl, trimmed);
       console.info("[DropMonitor] Zaktualizowano bazowy URL API", trimmed);
     }
   });
 
-  GM_registerMenuCommand("Drop Monitor: Ustaw API key", () => {
+  gmRegisterMenuCommand("Drop Monitor: Ustaw API key", () => {
     const value = prompt("Podaj X-DROP-API-KEY (pozostaw puste aby usunąć)", settings.apiKey || "");
     const normalized = (value || "").trim();
     settings.apiKey = normalized;
-    GM_setValue(STORAGE_KEYS.apiKey, normalized);
+    gmSetValue(STORAGE_KEYS.apiKey, normalized);
     console.info("[DropMonitor] Zaktualizowano API key (ustawiony?", Boolean(normalized), ")");
   });
 
@@ -128,27 +177,6 @@
       return true;
     }
     return Array.from(DROP_MESSAGES).some((message) => normalizedFull.includes(message));
-  }
-
-  function throttle(func, delay) {
-    let timeout = null;
-    let lastRan = 0;
-    return function (...args) {
-      const now = Date.now();
-      if (now - lastRan >= delay) {
-        func.apply(this, args);
-        lastRan = now;
-      } else {
-        clearTimeout(timeout);
-        timeout = setTimeout(
-          () => {
-            func.apply(this, args);
-            lastRan = Date.now();
-          },
-          delay - (now - lastRan),
-        );
-      }
-    };
   }
 
   function parseNumber(value) {
@@ -414,7 +442,10 @@
     if (!isWarFightUrl(url)) return;
     const fightDrop = normalizeFightDropPayload(payload);
     const fightDamage = normalizeFightDamagePayload(payload);
-    if (!fightDrop) return;
+    if (!fightDrop) {
+      pushLog("processFightResponsePayload:missing-fightDrop", { url, payloadType: typeof payload });
+      return;
+    }
     const inferredIsDrop =
       Number.isFinite(fightDrop.seed) &&
       Number.isFinite(fightDrop.chance) &&
@@ -467,6 +498,7 @@
   function installFightResponseNetworkHook() {
     if (state.networkHookInstalled) return;
     state.networkHookInstalled = true;
+    pushLog("installFightResponseNetworkHook");
 
     const originalFetch = window.fetch.bind(window);
     window.fetch = async function (...args) {
@@ -476,7 +508,19 @@
       try {
         if (isWarFightUrl(requestUrl)) {
           const clone = response.clone();
-          const payload = await clone.json();
+          let payload = null;
+          try {
+            payload = await clone.json();
+          } catch (_err) {
+            const text = await clone.text().catch(() => "");
+            try {
+              payload = JSON.parse(text);
+            } catch (_err2) {
+              payload = null;
+              pushLog("fetch:invalid-json", { requestUrl, status: response.status });
+            }
+          }
+          pushLog("fetch:war/fight", { requestUrl, status: response.status, hasPayload: Boolean(payload) });
           processFightResponsePayload(requestUrl, payload, requestBody);
         }
       } catch (_error) {}
@@ -497,7 +541,14 @@
         try {
           const url = String(this._dropMonitorUrl || "");
           if (!isWarFightUrl(url)) return;
-          const payload = JSON.parse(this.responseText || "{}");
+          let payload = null;
+          try {
+            payload = JSON.parse(this.responseText || "{}");
+          } catch (_err) {
+            pushLog("xhr:invalid-json", { url, status: this.status });
+            payload = null;
+          }
+          pushLog("xhr:war/fight", { url, status: this.status, hasPayload: Boolean(payload) });
           processFightResponsePayload(url, payload, this._dropMonitorBody);
         } catch (_error) {}
       });
@@ -505,9 +556,48 @@
     };
   }
 
+  function installFormSubmitHook() {
+    const originalSubmit = HTMLFormElement.prototype.submit;
+    HTMLFormElement.prototype.submit = function (...args) {
+      try {
+        const action = String(this.action || "");
+        if (isWarFightUrl(action)) {
+          const formData = new FormData(this);
+          const body = new URLSearchParams();
+          for (const [key, value] of formData.entries()) {
+            body.set(key, String(value));
+          }
+          pushLog("form:submit /war/fight", { action, body: body.toString().slice(0, 200) });
+        }
+      } catch (_err) {}
+      return originalSubmit.apply(this, args);
+    };
+
+    document.addEventListener(
+      "submit",
+      (event) => {
+        try {
+          const form = event.target;
+          if (!(form instanceof HTMLFormElement)) return;
+          const action = String(form.action || "");
+          if (!isWarFightUrl(action)) return;
+          const formData = new FormData(form);
+          const body = new URLSearchParams();
+          for (const [key, value] of formData.entries()) {
+            body.set(key, String(value));
+          }
+          pushLog("form:submit capture /war/fight", { action, body: body.toString().slice(0, 200) });
+        } catch (_err) {}
+      },
+      true,
+    );
+    pushLog("installFormSubmitHook");
+  }
+
   async function sendHitRecord(options, retries = 3) {
     const payload = await buildHitPayload(options);
     const body = JSON.stringify(payload);
+    pushLog("sendHitRecord", { hitId: payload.hitId, source: payload.source, isDrop: payload.isDrop });
     const headers = { "Content-Type": "application/json" };
     if (settings.apiKey) {
       headers["X-DROP-API-KEY"] = settings.apiKey;
@@ -551,6 +641,7 @@
           throw error;
         }
         await response.json().catch(() => null);
+        pushLog("sendHitRecord:ok", { hitId: payload.hitId });
         return;
       } catch (error) {
         console.warn(`[DropMonitor] Próba ${attempt}/${retries} nieudana`, error);
@@ -720,7 +811,7 @@
       position: "fixed",
       bottom: "100px",
       right: "20px",
-      zIndex: "99999",
+      zIndex: "2147483647",
       padding: "10px 14px",
       borderRadius: "999px",
       border: "none",
@@ -764,7 +855,7 @@
       color: "#f3f4f6",
       ...panelWide(),
     });
-    panel.innerHTML = `<div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;"><h3 style="margin:0;font-size:16px;">Statystyki hitów</h3><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;"><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-only-mine" type="checkbox" style="accent-color:#60a5fa;" />Tylko ja</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-all-columns" type="checkbox" style="accent-color:#60a5fa;" />Wszystkie kolumny</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;">Wiersze <select id="drop-monitor-stats-row-limit" style="background:#0b1220;color:#f3f4f6;border:1px solid #374151;border-radius:6px;padding:2px 6px;outline:none;"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="500">500</option></select></label><button type="button" id="drop-monitor-stats-view-hits" style="background:#2563eb;border:1px solid #2563eb;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Tabela</button><button type="button" id="drop-monitor-stats-view-analysis" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Analizy</button><button type="button" id="drop-monitor-stats-view-dmg" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">DMG</button></div><button type="button" id="drop-monitor-stats-close" style="background:none;border:none;color:#f3f4f6;font-size:20px;cursor:pointer;">×</button></div><div id="drop-monitor-stats-content" style="font-size:13px;line-height:1.5;">Ładowanie...</div>`;
+    panel.innerHTML = `<div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;"><h3 style="margin:0;font-size:16px;">Statystyki hitów</h3><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;"><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-only-mine" type="checkbox" style="accent-color:#60a5fa;" />Tylko ja</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-all-columns" type="checkbox" style="accent-color:#60a5fa;" />Wszystkie kolumny</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;">Wiersze <select id="drop-monitor-stats-row-limit" style="background:#0b1220;color:#f3f4f6;border:1px solid #374151;border-radius:6px;padding:2px 6px;outline:none;"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="500">500</option></select></label><button type="button" id="drop-monitor-set-api-key" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Ustaw API key</button><button type="button" id="drop-monitor-stats-view-hits" style="background:#2563eb;border:1px solid #2563eb;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Tabela</button><button type="button" id="drop-monitor-stats-view-analysis" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Analizy</button><button type="button" id="drop-monitor-stats-view-dmg" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">DMG</button><button type="button" id="drop-monitor-stats-view-logs" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Logi</button></div><button type="button" id="drop-monitor-stats-close" style="background:none;border:none;color:#f3f4f6;font-size:20px;cursor:pointer;">×</button></div><div id="drop-monitor-stats-content" style="font-size:13px;line-height:1.5;">Ładowanie...</div>`;
 
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
@@ -785,6 +876,10 @@
       state.statsViewMode = "damage";
       await refreshStats();
     });
+    overlay.querySelector("#drop-monitor-stats-view-logs")?.addEventListener("click", async () => {
+      state.statsViewMode = "logs";
+      await refreshStats();
+    });
 
     const updatePanelSize = () => {
       const panelEl = overlay.querySelector(".drop-monitor-stats-panel");
@@ -803,6 +898,7 @@
       setActive("#drop-monitor-stats-view-hits", state.statsViewMode === "hits");
       setActive("#drop-monitor-stats-view-analysis", state.statsViewMode === "analysis");
       setActive("#drop-monitor-stats-view-dmg", state.statsViewMode === "damage");
+      setActive("#drop-monitor-stats-view-logs", state.statsViewMode === "logs");
 
       try {
         updatePanelSize();
@@ -812,6 +908,8 @@
         } else if (state.statsViewMode === "damage") {
           const analysis = await fetchAnalysis(settings.statsOnlyMine, 30);
           renderDamageAnalysis(content, analysis);
+        } else if (state.statsViewMode === "logs") {
+          renderLogs(content);
         } else {
           const statsPayload = await fetchRecentHits(settings.statsRowLimit, settings.statsOnlyMine);
           renderStats(content, statsPayload, {
@@ -830,7 +928,7 @@
       onlyMineCheckbox.checked = Boolean(settings.statsOnlyMine);
       onlyMineCheckbox.addEventListener("change", async () => {
         settings.statsOnlyMine = Boolean(onlyMineCheckbox.checked);
-        GM_setValue(STORAGE_KEYS.statsOnlyMine, settings.statsOnlyMine);
+        gmSetValue(STORAGE_KEYS.statsOnlyMine, settings.statsOnlyMine);
         await refreshStats();
       });
     }
@@ -840,7 +938,7 @@
       allColumnsCheckbox.checked = Boolean(settings.statsShowAllColumns);
       allColumnsCheckbox.addEventListener("change", async () => {
         settings.statsShowAllColumns = Boolean(allColumnsCheckbox.checked);
-        GM_setValue(STORAGE_KEYS.statsShowAllColumns, settings.statsShowAllColumns);
+        gmSetValue(STORAGE_KEYS.statsShowAllColumns, settings.statsShowAllColumns);
         await refreshStats();
       });
     }
@@ -850,10 +948,28 @@
       rowLimitSelect.value = String(settings.statsRowLimit || 10);
       rowLimitSelect.addEventListener("change", async () => {
         settings.statsRowLimit = Math.max(1, Math.min(500, Number(rowLimitSelect.value) || 10));
-        GM_setValue(STORAGE_KEYS.statsRowLimit, settings.statsRowLimit);
+        gmSetValue(STORAGE_KEYS.statsRowLimit, settings.statsRowLimit);
         await refreshStats();
       });
     }
+
+    const apiKeyButton = overlay.querySelector("#drop-monitor-set-api-key");
+    if (apiKeyButton) {
+      apiKeyButton.addEventListener("click", async () => {
+        const value = prompt("Drop Monitor: Podaj X-DROP-API-KEY (puste = usuń)", settings.apiKey || "");
+        const normalized = (value || "").trim();
+        if (!normalized && settings.apiKey) {
+          alert("API key nie może być pusty. Jeśli chcesz usunąć, najpierw wyczyść w ustawieniach przeglądarki.");
+          return;
+        }
+        settings.apiKey = normalized;
+        gmSetValue(STORAGE_KEYS.apiKey, normalized);
+        pushLog("apiKey:update", { hasApiKey: Boolean(normalized), length: normalized.length });
+        await refreshStats();
+      });
+    }
+
+    // logs copy is handled in renderLogs()
 
     overlay._dropMonitorRefreshStats = refreshStats;
 
@@ -1207,25 +1323,10 @@
       typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : "-";
 
     const cards = [
-      { value: damage.samples ?? "-", label: "Pr?bki DMG" },
-      { value: damage.misses ?? "-", label: "Missy (damage=0)" },
-      { value: fmtPct(damage.missRate), label: "Miss rate" },
-      { value: damage.hitSamples ?? "-", label: "Hity (damage>0)" },
-      { value: fmtNum(damage.avgDamage, 2), label: "?r. damage" },
-      { value: fmtNum(damage.avgHitDamage, 2), label: "?r. damage (bez miss?w)" },
-      { value: fmtNum(damage.minDamageObserved, 0), label: "Min damage" },
-      { value: fmtNum(damage.maxDamageObserved, 0), label: "Max damage" },
-      { value: fmtNum(damage.minHitDamageObserved, 0), label: "Min hit damage" },
-      { value: fmtNum(damage.maxHitDamageObserved, 0), label: "Max hit damage" },
-      { value: fmtNum(damage.avgMinDamage, 2), label: "?r. min_damage" },
-      { value: fmtNum(damage.avgMaxDamage, 2), label: "?r. max_damage" },
-      { value: fmtNum(damage.avgMinDamageWithoutBonus, 2), label: "?r. min_damage_without_bonus" },
-      { value: fmtNum(damage.avgMaxDamageWithoutBonus, 2), label: "?r. max_damage_without_bonus" },
-      { value: damage.rangeComparableSamples ?? "-", label: "Por?wnywalne pr?bki (dmg+min+max)" },
+      { value: fmtPct(damage.missRateComparable), label: "Miss rate (gdy min/max znane)" },
       { value: fmtPct(damage.rangeWithinRate), label: "W zakresie min-max (request)" },
-      { value: damage.rangeBelowMinSamples ?? "-", label: "Poni?ej min (request)" },
-      { value: damage.rangeAboveMaxSamples ?? "-", label: "Powy?ej max (request)" },
-      { value: fmtNum(damage.avgDeclaredSpan, 2), label: "?r. span max-min (request)" },
+      { value: fmtPct(damage.avgDamageToMax), label: "Śr. dmg / max (request)" },
+      { value: fmtPct(damage.avgDamagePosition), label: "Śr. pozycja w [min,max]" },
     ];
 
     const renderHistogram = (hist, title, color) => {
@@ -1243,21 +1344,71 @@
       return `<div style="margin-top:12px;border:1px solid #1f2937;border-radius:8px;padding:10px;background:#0b1220;"><div style="font-size:12px;color:#9ca3af;margin-bottom:6px;">${title}</div>${bars}</div>`;
     };
 
-    const allDamageHist = renderHistogram(damage.histogram, "Histogram damage (wszystko, progi co 100)", "#34d399");
-    const hitDamageHist = renderHistogram(damage.hitHistogram, "Histogram damage (bez miss?w, progi co 100)", "#10b981");
-    const minReqHist = renderHistogram(damage.declaredMinHistogram, "Rozk?ad min_damage z requesta (co 100)", "#3b82f6");
-    const maxReqHist = renderHistogram(damage.declaredMaxHistogram, "Rozk?ad max_damage z requesta (co 100)", "#f59e0b");
+    const posHist = renderHistogram(damage.positionHistogram, "Pozycja damage w przedziale min-max (0..1)", "#a78bfa");
 
     container.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">${cards
       .map(
         (c) =>
           `<div style="flex:1 1 170px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:22px;font-weight:600;">${c.value}</div><div style="font-size:12px;color:#9ca3af;">${c.label}</div></div>`,
       )
-      .join("")}</div>${allDamageHist}${hitDamageHist}${minReqHist}${maxReqHist}`;
+      .join("")}</div>${posHist}`;
   }
 
+  function renderLogs(container) {
+    if (!container) return;
+    const text = logLines.join("\n");
+    const safe = String(text || "Brak logów.");
+    const copyId = "drop-monitor-logs-copy";
+    const statusId = "drop-monitor-logs-status";
+    container.innerHTML = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;"><button type="button" id="${copyId}" style="background:#0b1220;border:1px solid #374151;color:#e5e7eb;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">Kopiuj logi</button><span id="${statusId}" style="font-size:11px;color:#9ca3af;"></span></div><div style="background:#0b1220;border:1px dashed #374151;border-radius:8px;padding:8px;font-size:11px;white-space:pre-wrap;color:#e5e7eb;max-height:50vh;overflow:auto;">${safe}</div>`;
+    const copyBtn = container.querySelector(`#${copyId}`);
+    if (copyBtn) {
+      copyBtn.addEventListener("click", async () => {
+        let ok = false;
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            ok = true;
+          }
+        } catch (_err) {}
+        if (!ok) {
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.left = "-9999px";
+            document.body.appendChild(ta);
+            ta.select();
+            ok = document.execCommand("copy");
+            ta.remove();
+          } catch (_err) {
+            ok = false;
+          }
+        }
+        const status = container.querySelector(`#${statusId}`);
+        if (status) {
+          status.textContent = ok ? "Skopiowano" : "Nie udało się skopiować";
+          setTimeout(() => {
+            status.textContent = "";
+          }, 2500);
+        }
+      });
+    }
+  }
+
+  async function debugHealthCheck() {
+    try {
+      const url = buildApiUrl("/api/health");
+      const response = await fetch(url, { credentials: "omit" });
+      pushLog("healthcheck", { url, status: response.status });
+    } catch (error) {
+      pushLog("healthcheck:error", String(error));
+    }
+  }
 
   installFightResponseNetworkHook();
+  installFormSubmitHook();
+  void debugHealthCheck();
   if (USE_POPUP_DETECTION) {
     observeNotifications();
   }
