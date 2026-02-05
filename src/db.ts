@@ -38,6 +38,11 @@ export type HitRecordInsert = {
   fightDropSeed?: number | null;
   fightDropChance?: number | null;
   fightDropDebug?: string | null;
+  damage?: number | null;
+  minDamage?: number | null;
+  maxDamage?: number | null;
+  minDamageWithoutBonus?: number | null;
+  maxDamageWithoutBonus?: number | null;
   dropMessageId?: string | null;
   dropHeading?: string | null;
   dropDescription?: string | null;
@@ -83,6 +88,32 @@ export type HitAnalysisResult = {
   debugAverages: Record<string, number>;
   daily: Array<{ date: string; hits: number; observedDrops: number; expectedDrops: number | null }>;
   seedHistogram: Array<{ from: number; to: number; count: number }>;
+  damage: {
+    samples: number;
+    misses: number;
+    missRate: number | null;
+    hitSamples: number;
+    avgDamage: number | null;
+    minDamageObserved: number | null;
+    maxDamageObserved: number | null;
+    avgHitDamage: number | null;
+    minHitDamageObserved: number | null;
+    maxHitDamageObserved: number | null;
+    avgMinDamage: number | null;
+    avgMaxDamage: number | null;
+    avgMinDamageWithoutBonus: number | null;
+    avgMaxDamageWithoutBonus: number | null;
+    rangeComparableSamples: number;
+    rangeWithinSamples: number;
+    rangeBelowMinSamples: number;
+    rangeAboveMaxSamples: number;
+    rangeWithinRate: number | null;
+    avgDeclaredSpan: number | null;
+    histogram: Array<{ from: number; to: number; count: number }>;
+    hitHistogram: Array<{ from: number; to: number; count: number }>;
+    declaredMinHistogram: Array<{ from: number; to: number; count: number }>;
+    declaredMaxHistogram: Array<{ from: number; to: number; count: number }>;
+  };
   dryStreakHistogram: Array<{ from: number; to: number; count: number }>;
 };
 
@@ -146,6 +177,11 @@ async function getDb(): Promise<Database> {
           fight_drop_seed INTEGER,
           fight_drop_chance REAL,
           fight_drop_debug TEXT,
+          damage REAL,
+          min_damage REAL,
+          max_damage REAL,
+          min_damage_without_bonus REAL,
+          max_damage_without_bonus REAL,
           drop_message_id TEXT,
           drop_heading TEXT,
           drop_description TEXT,
@@ -161,6 +197,11 @@ async function getDb(): Promise<Database> {
       await ensureColumnExists(db, "war_hits", "fight_drop_seed", "INTEGER");
       await ensureColumnExists(db, "war_hits", "fight_drop_chance", "REAL");
       await ensureColumnExists(db, "war_hits", "fight_drop_debug", "TEXT");
+      await ensureColumnExists(db, "war_hits", "damage", "REAL");
+      await ensureColumnExists(db, "war_hits", "min_damage", "REAL");
+      await ensureColumnExists(db, "war_hits", "max_damage", "REAL");
+      await ensureColumnExists(db, "war_hits", "min_damage_without_bonus", "REAL");
+      await ensureColumnExists(db, "war_hits", "max_damage_without_bonus", "REAL");
       return db;
     });
   }
@@ -218,6 +259,11 @@ export async function insertHitRecord(record: HitRecordInsert): Promise<string> 
       record.fightDropSeed ?? null,
       record.fightDropChance ?? null,
       record.fightDropDebug ?? null,
+      record.damage ?? null,
+      record.minDamage ?? null,
+      record.maxDamage ?? null,
+      record.minDamageWithoutBonus ?? null,
+      record.maxDamageWithoutBonus ?? null,
       record.dropMessageId ?? null,
       record.dropHeading ?? null,
       record.dropDescription ?? null,
@@ -260,12 +306,17 @@ export async function insertHitRecord(record: HitRecordInsert): Promise<string> 
       fight_drop_seed,
       fight_drop_chance,
       fight_drop_debug,
+      damage,
+      min_damage,
+      max_damage,
+      min_damage_without_bonus,
+      max_damage_without_bonus,
       drop_message_id,
       drop_heading,
       drop_description,
       extra
     ) VALUES (
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
     ON CONFLICT(hit_id) DO UPDATE SET
       source = excluded.source,
@@ -300,6 +351,11 @@ export async function insertHitRecord(record: HitRecordInsert): Promise<string> 
       fight_drop_seed = COALESCE(excluded.fight_drop_seed, war_hits.fight_drop_seed),
       fight_drop_chance = COALESCE(excluded.fight_drop_chance, war_hits.fight_drop_chance),
       fight_drop_debug = COALESCE(excluded.fight_drop_debug, war_hits.fight_drop_debug),
+      damage = COALESCE(excluded.damage, war_hits.damage),
+      min_damage = COALESCE(excluded.min_damage, war_hits.min_damage),
+      max_damage = COALESCE(excluded.max_damage, war_hits.max_damage),
+      min_damage_without_bonus = COALESCE(excluded.min_damage_without_bonus, war_hits.min_damage_without_bonus),
+      max_damage_without_bonus = COALESCE(excluded.max_damage_without_bonus, war_hits.max_damage_without_bonus),
       drop_message_id = COALESCE(excluded.drop_message_id, war_hits.drop_message_id),
       drop_heading = COALESCE(excluded.drop_heading, war_hits.drop_heading),
       drop_description = COALESCE(excluded.drop_description, war_hits.drop_description),
@@ -375,13 +431,15 @@ export async function listHitRecords(filters: {
       player_food_max as playerFoodMax,
       player_consumables_current as playerConsumablesCurrent,
       player_consumables_max as playerConsumablesMax,
-      currency_gold as currencyGold,
-      currency_pln as currencyPln,
-      currency_details as currencyDetails,
       drop_chance as dropChance,
       fight_drop_seed as fightDropSeed,
       fight_drop_chance as fightDropChance,
       fight_drop_debug as fightDropDebug,
+      damage as damage,
+      min_damage as minDamage,
+      max_damage as maxDamage,
+      min_damage_without_bonus as minDamageWithoutBonus,
+      max_damage_without_bonus as maxDamageWithoutBonus,
       drop_message_id as dropMessageId,
       drop_heading as dropHeading,
       drop_description as dropDescription,
@@ -451,6 +509,11 @@ export async function analyzeHitRecords(filters: {
       fightDropSeed: number | null;
       fightDropChance: number | null;
       fightDropDebug: string | null;
+      damage: number | null;
+      minDamage: number | null;
+      maxDamage: number | null;
+      minDamageWithoutBonus: number | null;
+      maxDamageWithoutBonus: number | null;
     }>
   >(
     `
@@ -459,7 +522,12 @@ export async function analyzeHitRecords(filters: {
       is_drop as isDrop,
       fight_drop_seed as fightDropSeed,
       fight_drop_chance as fightDropChance,
-      fight_drop_debug as fightDropDebug
+      fight_drop_debug as fightDropDebug,
+      damage as damage,
+      min_damage as minDamage,
+      max_damage as maxDamage,
+      min_damage_without_bonus as minDamageWithoutBonus,
+      max_damage_without_bonus as maxDamageWithoutBonus
     FROM war_hits
     WHERE
       (:warId IS NULL OR war_id = :warId)
@@ -483,6 +551,29 @@ export async function analyzeHitRecords(filters: {
   let maxSeed: number | null = null;
   let minChance: number | null = null;
   let maxChance: number | null = null;
+  let damageCount = 0;
+  let missCount = 0;
+  let hitDamageCount = 0;
+  let damageSum = 0;
+  let minDamageObserved: number | null = null;
+  let maxDamageObserved: number | null = null;
+  let hitDamageSum = 0;
+  let minHitDamageObserved: number | null = null;
+  let maxHitDamageObserved: number | null = null;
+  let minDamageSum = 0;
+  let minDamageCount = 0;
+  let maxDamageSum = 0;
+  let maxDamageCount = 0;
+  let minDamageWithoutBonusSum = 0;
+  let minDamageWithoutBonusCount = 0;
+  let maxDamageWithoutBonusSum = 0;
+  let maxDamageWithoutBonusCount = 0;
+  let rangeComparableCount = 0;
+  let rangeWithinCount = 0;
+  let rangeBelowMinCount = 0;
+  let rangeAboveMaxCount = 0;
+  let declaredSpanSum = 0;
+  let declaredSpanCount = 0;
 
   const debugSum: Record<string, number> = {};
   const debugCount: Record<string, number> = {};
@@ -518,6 +609,60 @@ export async function analyzeHitRecords(filters: {
       maxChance = maxChance == null ? chance : Math.max(maxChance, chance);
       chanceSum += chance;
       chanceCount += 1;
+    }
+    if (typeof row.damage === "number" && Number.isFinite(row.damage)) {
+      damageCount += 1;
+      damageSum += row.damage;
+      minDamageObserved = minDamageObserved == null ? row.damage : Math.min(minDamageObserved, row.damage);
+      maxDamageObserved = maxDamageObserved == null ? row.damage : Math.max(maxDamageObserved, row.damage);
+      if (row.damage === 0) {
+        missCount += 1;
+      } else if (row.damage > 0) {
+        hitDamageCount += 1;
+        hitDamageSum += row.damage;
+        minHitDamageObserved = minHitDamageObserved == null ? row.damage : Math.min(minHitDamageObserved, row.damage);
+        maxHitDamageObserved = maxHitDamageObserved == null ? row.damage : Math.max(maxHitDamageObserved, row.damage);
+      }
+    }
+    if (typeof row.minDamage === "number" && Number.isFinite(row.minDamage)) {
+      minDamageSum += row.minDamage;
+      minDamageCount += 1;
+    }
+    if (typeof row.maxDamage === "number" && Number.isFinite(row.maxDamage)) {
+      maxDamageSum += row.maxDamage;
+      maxDamageCount += 1;
+    }
+    if (typeof row.minDamageWithoutBonus === "number" && Number.isFinite(row.minDamageWithoutBonus)) {
+      minDamageWithoutBonusSum += row.minDamageWithoutBonus;
+      minDamageWithoutBonusCount += 1;
+    }
+    if (typeof row.maxDamageWithoutBonus === "number" && Number.isFinite(row.maxDamageWithoutBonus)) {
+      maxDamageWithoutBonusSum += row.maxDamageWithoutBonus;
+      maxDamageWithoutBonusCount += 1;
+    }
+    if (
+      typeof row.damage === "number" &&
+      Number.isFinite(row.damage) &&
+      typeof row.minDamage === "number" &&
+      Number.isFinite(row.minDamage) &&
+      typeof row.maxDamage === "number" &&
+      Number.isFinite(row.maxDamage)
+    ) {
+      rangeComparableCount += 1;
+      if (row.damage < row.minDamage) {
+        rangeBelowMinCount += 1;
+      } else if (row.damage > row.maxDamage) {
+        rangeAboveMaxCount += 1;
+      } else {
+        rangeWithinCount += 1;
+      }
+    }
+    if (typeof row.minDamage === "number" && Number.isFinite(row.minDamage) && typeof row.maxDamage === "number" && Number.isFinite(row.maxDamage)) {
+      const span = row.maxDamage - row.minDamage;
+      if (Number.isFinite(span) && span >= 0) {
+        declaredSpanSum += span;
+        declaredSpanCount += 1;
+      }
     }
 
     // Debug components
@@ -576,11 +721,11 @@ export async function analyzeHitRecords(filters: {
       return { date, hits: day.hits, observedDrops: day.observedDrops, expectedDrops };
     });
 
-  // Seed histogram (10 bins)
+  // Seed histogram (step = 100)
   const seedHistogram: HitAnalysisResult["seedHistogram"] = [];
   if (denom) {
-    const bins = 10;
-    const binSize = Math.max(1, Math.floor(denom / bins));
+    const binSize = 100;
+    const bins = Math.max(1, Math.ceil(denom / binSize));
     const binCounts = new Array(bins).fill(0);
     for (const row of rows) {
       const seed = typeof row.fightDropSeed === "number" && Number.isFinite(row.fightDropSeed) ? row.fightDropSeed : null;
@@ -589,9 +734,39 @@ export async function analyzeHitRecords(filters: {
       binCounts[idx] += 1;
     }
     for (let i = 0; i < bins; i++) {
-      seedHistogram.push({ from: i * binSize, to: (i + 1) * binSize - 1, count: binCounts[i] });
+      const from = i * binSize;
+      const to = Math.min(denom - 1, (i + 1) * binSize - 1);
+      seedHistogram.push({ from, to, count: binCounts[i] });
     }
   }
+
+  const buildHistogram = (values: Array<number | null | undefined>, step = 100): Array<{ from: number; to: number; count: number }> => {
+    const nums = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
+    if (!nums.length) return [];
+    const maxValue = Math.max(...nums);
+    const maxBucket = Math.max(step, Math.ceil((maxValue + 1) / step) * step);
+    const bins = Math.max(1, Math.ceil(maxBucket / step));
+    const counts = new Array(bins).fill(0);
+    for (const num of nums) {
+      const idx = Math.min(bins - 1, Math.max(0, Math.floor(num / step)));
+      counts[idx] += 1;
+    }
+    const histogram: Array<{ from: number; to: number; count: number }> = [];
+    for (let i = 0; i < bins; i++) {
+      const from = i * step;
+      const to = (i + 1) * step - 1;
+      histogram.push({ from, to, count: counts[i] });
+    }
+    return histogram;
+  };
+
+  const damageHistogram = buildHistogram(rows.map((row) => row.damage), 100);
+  const hitHistogram = buildHistogram(
+    rows.map((row) => (typeof row.damage === "number" && Number.isFinite(row.damage) && row.damage > 0 ? row.damage : null)),
+    100,
+  );
+  const declaredMinHistogram = buildHistogram(rows.map((row) => row.minDamage), 100);
+  const declaredMaxHistogram = buildHistogram(rows.map((row) => row.maxDamage), 100);
 
   // Dry streak histogram (0-9, 10-19, ..., 100+)
   const dryStreakHistogram: HitAnalysisResult["dryStreakHistogram"] = [];
@@ -647,6 +822,32 @@ export async function analyzeHitRecords(filters: {
     debugAverages,
     daily,
     seedHistogram,
+    damage: {
+      samples: damageCount,
+      misses: missCount,
+      missRate: damageCount ? missCount / damageCount : null,
+      hitSamples: hitDamageCount,
+      avgDamage: damageCount ? damageSum / damageCount : null,
+      minDamageObserved,
+      maxDamageObserved,
+      avgHitDamage: hitDamageCount ? hitDamageSum / hitDamageCount : null,
+      minHitDamageObserved,
+      maxHitDamageObserved,
+      avgMinDamage: minDamageCount ? minDamageSum / minDamageCount : null,
+      avgMaxDamage: maxDamageCount ? maxDamageSum / maxDamageCount : null,
+      avgMinDamageWithoutBonus: minDamageWithoutBonusCount ? minDamageWithoutBonusSum / minDamageWithoutBonusCount : null,
+      avgMaxDamageWithoutBonus: maxDamageWithoutBonusCount ? maxDamageWithoutBonusSum / maxDamageWithoutBonusCount : null,
+      rangeComparableSamples: rangeComparableCount,
+      rangeWithinSamples: rangeWithinCount,
+      rangeBelowMinSamples: rangeBelowMinCount,
+      rangeAboveMaxSamples: rangeAboveMaxCount,
+      rangeWithinRate: rangeComparableCount ? rangeWithinCount / rangeComparableCount : null,
+      avgDeclaredSpan: declaredSpanCount ? declaredSpanSum / declaredSpanCount : null,
+      histogram: damageHistogram,
+      hitHistogram,
+      declaredMinHistogram,
+      declaredMaxHistogram,
+    },
     dryStreakHistogram,
   };
 }

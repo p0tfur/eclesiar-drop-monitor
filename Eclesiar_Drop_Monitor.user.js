@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eclesiar Drop Monitor
 // @namespace    https://eclesiar.com/
-// @version      0.2.1
+// @version      0.2.3
 // @description  Wykrywa dropy podczas bitew, zbiera kontekst gracza/wojny i wysyła dane do centralnego backendu.
 // @author       p0tfur
 // @match        https://eclesiar.com/war/*
@@ -251,35 +251,11 @@
     };
   }
 
-  function parseCurrencyByAlt(altText) {
-    const icon = document.querySelector(`.premium-finances img.list-icon[alt='${altText}']`);
-    if (!icon) return null;
-    const container = icon.closest(".text") || icon.parentElement;
-    const valueEl = container ? container.querySelector("b") : null;
-    return parseNumber(safeText(valueEl));
-  }
-
-  function parseCurrencies() {
-    const gold = parseCurrencyByAlt("Złoto");
-    const plnIcon = document.querySelector(".premium-finances .currency-clickable b");
-    const pln = parseNumber(safeText(plnIcon));
-    let detailsText = null;
-    const tooltip = document.querySelector(".premium-finances .currency-clickable .tooltip-content");
-    if (tooltip) {
-      const parts = Array.from(tooltip.querySelectorAll(".d-flex .text b"))
-        .map((node) => safeText(node))
-        .filter(Boolean);
-      if (parts.length) {
-        detailsText = parts.join(", ");
-      }
-    }
-    if (gold == null && pln == null) {
-      return null;
-    }
+  function buildEmptyCurrencies() {
     return {
-      gold: gold ?? undefined,
-      pln: pln ?? undefined,
-      details: detailsText || undefined,
+      gold: null,
+      pln: null,
+      details: null,
     };
   }
 
@@ -350,7 +326,6 @@
     const war = collectWarContext();
     const round = parseRoundInfo();
     const player = parsePlayerInfo();
-    const currencies = parseCurrencies();
     const dropChance = await fetchDropChance();
 
     return {
@@ -363,10 +338,11 @@
       war,
       round,
       player,
-      currencies,
+      currencies: buildEmptyCurrencies(),
       dropChance,
       drop: options.dropMeta || undefined,
       fightDrop: options.fightDrop || undefined,
+      fightDamage: options.fightDamage || undefined,
       extra: options.extra || undefined,
     };
   }
@@ -391,6 +367,23 @@
       chance: chance ?? null,
       seed: seed ?? null,
       debug,
+    };
+  }
+
+  function normalizeFightDamagePayload(payload) {
+    if (!payload || typeof payload !== "object" || payload.code !== 200) {
+      return null;
+    }
+    const data = payload?.data;
+    if (!data || typeof data !== "object") {
+      return null;
+    }
+    return {
+      damage: parseNumber(data.damage),
+      min_damage: parseNumber(data.min_damage),
+      max_damage: parseNumber(data.max_damage),
+      min_damage_without_bonus: parseNumber(data.min_damage_without_bonus),
+      max_damage_without_bonus: parseNumber(data.max_damage_without_bonus),
     };
   }
 
@@ -420,6 +413,7 @@
   function processFightResponsePayload(url, payload, requestBody) {
     if (!isWarFightUrl(url)) return;
     const fightDrop = normalizeFightDropPayload(payload);
+    const fightDamage = normalizeFightDamagePayload(payload);
     if (!fightDrop) return;
     const inferredIsDrop =
       Number.isFinite(fightDrop.seed) &&
@@ -459,6 +453,7 @@
           }
         : undefined,
       fightDrop,
+      fightDamage,
       extra: {
         responseUrl: url,
         responseCode: payload?.code ?? null,
@@ -769,7 +764,7 @@
       color: "#f3f4f6",
       ...panelWide(),
     });
-    panel.innerHTML = `<div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;"><h3 style="margin:0;font-size:16px;">Statystyki hitów</h3><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;"><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-only-mine" type="checkbox" style="accent-color:#60a5fa;" />Tylko ja</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-all-columns" type="checkbox" style="accent-color:#60a5fa;" />Wszystkie kolumny</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;">Wiersze <select id="drop-monitor-stats-row-limit" style="background:#0b1220;color:#f3f4f6;border:1px solid #374151;border-radius:6px;padding:2px 6px;outline:none;"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="500">500</option></select></label><button type="button" id="drop-monitor-stats-view-toggle" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Analizy</button></div><button type="button" id="drop-monitor-stats-close" style="background:none;border:none;color:#f3f4f6;font-size:20px;cursor:pointer;">×</button></div><div id="drop-monitor-stats-content" style="font-size:13px;line-height:1.5;">Ładowanie...</div>`;
+    panel.innerHTML = `<div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;"><h3 style="margin:0;font-size:16px;">Statystyki hitów</h3><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;"><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-only-mine" type="checkbox" style="accent-color:#60a5fa;" />Tylko ja</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-all-columns" type="checkbox" style="accent-color:#60a5fa;" />Wszystkie kolumny</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;">Wiersze <select id="drop-monitor-stats-row-limit" style="background:#0b1220;color:#f3f4f6;border:1px solid #374151;border-radius:6px;padding:2px 6px;outline:none;"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="500">500</option></select></label><button type="button" id="drop-monitor-stats-view-hits" style="background:#2563eb;border:1px solid #2563eb;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Tabela</button><button type="button" id="drop-monitor-stats-view-analysis" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Analizy</button><button type="button" id="drop-monitor-stats-view-dmg" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">DMG</button></div><button type="button" id="drop-monitor-stats-close" style="background:none;border:none;color:#f3f4f6;font-size:20px;cursor:pointer;">×</button></div><div id="drop-monitor-stats-content" style="font-size:13px;line-height:1.5;">Ładowanie...</div>`;
 
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
@@ -778,8 +773,16 @@
       if (event.target === overlay) closeStatsModal();
     });
     overlay.querySelector("#drop-monitor-stats-close")?.addEventListener("click", closeStatsModal);
-    overlay.querySelector("#drop-monitor-stats-view-toggle")?.addEventListener("click", async () => {
-      state.statsViewMode = state.statsViewMode === "analysis" ? "hits" : "analysis";
+    overlay.querySelector("#drop-monitor-stats-view-hits")?.addEventListener("click", async () => {
+      state.statsViewMode = "hits";
+      await refreshStats();
+    });
+    overlay.querySelector("#drop-monitor-stats-view-analysis")?.addEventListener("click", async () => {
+      state.statsViewMode = "analysis";
+      await refreshStats();
+    });
+    overlay.querySelector("#drop-monitor-stats-view-dmg")?.addEventListener("click", async () => {
+      state.statsViewMode = "damage";
       await refreshStats();
     });
 
@@ -791,16 +794,24 @@
     async function refreshStats() {
       const content = overlay.querySelector("#drop-monitor-stats-content");
       if (content) content.textContent = "Ładowanie...";
-      const viewToggle = overlay.querySelector("#drop-monitor-stats-view-toggle");
-      if (viewToggle) {
-        viewToggle.textContent = state.statsViewMode === "analysis" ? "Tabela" : "Analizy";
-      }
+      const setActive = (id, active) => {
+        const button = overlay.querySelector(id);
+        if (!button) return;
+        button.style.background = active ? "#2563eb" : "#0b1220";
+        button.style.borderColor = active ? "#2563eb" : "#374151";
+      };
+      setActive("#drop-monitor-stats-view-hits", state.statsViewMode === "hits");
+      setActive("#drop-monitor-stats-view-analysis", state.statsViewMode === "analysis");
+      setActive("#drop-monitor-stats-view-dmg", state.statsViewMode === "damage");
 
       try {
         updatePanelSize();
         if (state.statsViewMode === "analysis") {
           const analysis = await fetchAnalysis(settings.statsOnlyMine, 30);
           renderAnalysis(content, analysis);
+        } else if (state.statsViewMode === "damage") {
+          const analysis = await fetchAnalysis(settings.statsOnlyMine, 30);
+          renderDamageAnalysis(content, analysis);
         } else {
           const statsPayload = await fetchRecentHits(settings.statsRowLimit, settings.statsOnlyMine);
           renderStats(content, statsPayload, {
@@ -921,6 +932,14 @@
     const rowLimit = Math.max(1, Math.min(500, Number(options.rowLimit) || 10));
     const viewHits = hits.slice(0, rowLimit);
     const shown = viewHits.length;
+    const hiddenColumns = new Set([
+      "buttonLabel",
+      "battleId",
+      "source",
+      "currencyGold",
+      "currencyPln",
+      "currencyDetails",
+    ]);
 
     function normalizeValue(value) {
       if (value == null) return "";
@@ -991,9 +1010,13 @@
         "createdAt",
         "hitId",
         "playerName",
-        "buttonLabel",
         "isDrop",
         "dropChance",
+        "damage",
+        "minDamage",
+        "maxDamage",
+        "minDamageWithoutBonus",
+        "maxDamageWithoutBonus",
         "fightDropChance",
         "fightDropSeed",
         "fightDropDebug",
@@ -1007,9 +1030,9 @@
       const keys = new Set();
       viewHits.forEach((hit) => Object.keys(hit || {}).forEach((key) => keys.add(key)));
 
-      const remaining = Array.from(keys).filter((k) => !preferred.includes(k));
+      const remaining = Array.from(keys).filter((k) => !preferred.includes(k) && !hiddenColumns.has(k));
       remaining.sort((a, b) => a.localeCompare(b));
-      const columns = preferred.filter((k) => keys.has(k)).concat(remaining);
+      const columns = preferred.filter((k) => keys.has(k) && !hiddenColumns.has(k)).concat(remaining);
 
       const head = columns
         .map(
@@ -1045,19 +1068,22 @@
       .map((hit) => {
         const time = new Date(hit.createdAt || hit.hitTriggeredAt || Date.now()).toLocaleTimeString();
         const fightInfo = [
+          hit.damage != null ? `dmg:${hit.damage}` : "",
+          hit.minDamage != null ? `min:${hit.minDamage}` : "",
+          hit.maxDamage != null ? `max:${hit.maxDamage}` : "",
           hit.fightDropChance != null ? `ch:${formatDropChance(hit.fightDropChance)}` : "",
           hit.fightDropSeed != null ? `seed:${hit.fightDropSeed}` : "",
           formatFightDebug(hit.fightDropDebug),
         ]
           .filter(Boolean)
           .join(" | ");
-        return `<tr><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(time)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(hit.buttonLabel || "Walcz")}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:center;">${hit.isDrop ? "🎁" : "-"}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:right;">${escapeHtml(formatDropChance(hit.dropChance))}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(fightInfo)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${buildWhereCell(hit)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(hit.dropHeading || hit.dropDescription || "")}</td></tr>`;
+        return `<tr><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(time)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:center;">${hit.isDrop ? "🎁" : "-"}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;text-align:right;">${escapeHtml(formatDropChance(hit.dropChance))}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(fightInfo)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${buildWhereCell(hit)}</td><td style="padding:4px 0;border-bottom:1px solid #1f2937;">${escapeHtml(hit.dropHeading || hit.dropDescription || "")}</td></tr>`;
       })
       .join("");
 
     const summaryHtml = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${total}</div><div style="font-size:12px;color:#9ca3af;">Wszystkie hity w bazie</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${drops}</div><div style="font-size:12px;color:#9ca3af;">Wszystkie dropy w bazie</div></div><div style="flex:1 1 120px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:26px;font-weight:600;">${rate}%</div><div style="font-size:12px;color:#9ca3af;">Drop rate (baza)</div></div></div>`;
-    const bodyHtml = rowsHtml || '<tr><td colspan="7" style="padding:8px 0;text-align:center;">Brak danych</td></tr>';
-    container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Czas</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Akcja</th><th style="text-align:center;padding:4px 0;border-bottom:1px solid #374151;">Drop</th><th style="text-align:right;padding:4px 0;border-bottom:1px solid #374151;">Chance</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Fight API</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Gdzie</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Opis</th></tr></thead><tbody>${bodyHtml}</tbody></table><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano ${shown} z ${totalFetched} pobranych rekordow (w bazie: ${total}).</p>`;
+    const bodyHtml = rowsHtml || '<tr><td colspan="6" style="padding:8px 0;text-align:center;">Brak danych</td></tr>';
+    container.innerHTML = `${summaryHtml}<p style="margin:4px 0 12px 0;font-size:12px;color:#9ca3af;">Ostatni drop: ${lastDropText}</p><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Czas</th><th style="text-align:center;padding:4px 0;border-bottom:1px solid #374151;">Drop</th><th style="text-align:right;padding:4px 0;border-bottom:1px solid #374151;">Chance</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Fight API</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Gdzie</th><th style="text-align:left;padding:4px 0;border-bottom:1px solid #374151;">Opis</th></tr></thead><tbody>${bodyHtml}</tbody></table><p style="margin-top:10px;font-size:11px;color:#6b7280;">Pokazano ${shown} z ${totalFetched} pobranych rekordow (w bazie: ${total}).</p>`;
   }
 
   async function fetchAnalysis(onlyMine = true, days = 30) {
@@ -1154,7 +1180,7 @@
       })
       .join("");
     const seedSection = seedBars
-      ? `<div style="margin-top:12px;border:1px solid #1f2937;border-radius:8px;padding:10px;background:#0b1220;"><div style="font-size:12px;color:#9ca3af;margin-bottom:6px;">Histogram seed (10 binow)</div>${seedBars}</div>`
+      ? `<div style="margin-top:12px;border:1px solid #1f2937;border-radius:8px;padding:10px;background:#0b1220;"><div style="font-size:12px;color:#9ca3af;margin-bottom:6px;">Histogram seed (progi co 100)</div>${seedBars}</div>`
       : "";
 
     const note = `<p style="margin-top:10px;font-size:11px;color:#6b7280;">Scope: player=${scope.playerName || "ALL"}, war=${scope.warId || "ALL"}, days=${scope.days || "ALL"}, rows=${scope.rowCount}. Drop (observed) = isDrop w bazie LUB (seed &lt;= chance). Expected zaklada p ~= chance/denominator.</p>`;
@@ -1166,6 +1192,70 @@
       )
       .join("")}</div>${dailyTable}${seedSection}${debugHtml}${note}`;
   }
+
+  function renderDamageAnalysis(container, analysis) {
+    if (!container) return;
+    const damage = analysis?.damage;
+    if (!damage || !Number.isFinite(damage.samples) || damage.samples <= 0) {
+      container.textContent = "Brak danych DMG do analizy.";
+      return;
+    }
+
+    const fmtNum = (value, digits = 2) =>
+      typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "-";
+    const fmtPct = (value) =>
+      typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : "-";
+
+    const cards = [
+      { value: damage.samples ?? "-", label: "Pr?bki DMG" },
+      { value: damage.misses ?? "-", label: "Missy (damage=0)" },
+      { value: fmtPct(damage.missRate), label: "Miss rate" },
+      { value: damage.hitSamples ?? "-", label: "Hity (damage>0)" },
+      { value: fmtNum(damage.avgDamage, 2), label: "?r. damage" },
+      { value: fmtNum(damage.avgHitDamage, 2), label: "?r. damage (bez miss?w)" },
+      { value: fmtNum(damage.minDamageObserved, 0), label: "Min damage" },
+      { value: fmtNum(damage.maxDamageObserved, 0), label: "Max damage" },
+      { value: fmtNum(damage.minHitDamageObserved, 0), label: "Min hit damage" },
+      { value: fmtNum(damage.maxHitDamageObserved, 0), label: "Max hit damage" },
+      { value: fmtNum(damage.avgMinDamage, 2), label: "?r. min_damage" },
+      { value: fmtNum(damage.avgMaxDamage, 2), label: "?r. max_damage" },
+      { value: fmtNum(damage.avgMinDamageWithoutBonus, 2), label: "?r. min_damage_without_bonus" },
+      { value: fmtNum(damage.avgMaxDamageWithoutBonus, 2), label: "?r. max_damage_without_bonus" },
+      { value: damage.rangeComparableSamples ?? "-", label: "Por?wnywalne pr?bki (dmg+min+max)" },
+      { value: fmtPct(damage.rangeWithinRate), label: "W zakresie min-max (request)" },
+      { value: damage.rangeBelowMinSamples ?? "-", label: "Poni?ej min (request)" },
+      { value: damage.rangeAboveMaxSamples ?? "-", label: "Powy?ej max (request)" },
+      { value: fmtNum(damage.avgDeclaredSpan, 2), label: "?r. span max-min (request)" },
+    ];
+
+    const renderHistogram = (hist, title, color) => {
+      const bins = Array.isArray(hist) ? hist : [];
+      const filtered = bins.filter((b) => (Number(b.count) || 0) > 0);
+      if (!filtered.length) return "";
+      const maxBin = filtered.reduce((m, b) => Math.max(m, Number(b.count) || 0), 0) || 1;
+      const bars = filtered
+        .map((b) => {
+          const count = Number(b.count) || 0;
+          const w = Math.round((count / maxBin) * 140);
+          return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;"><div style="width:110px;color:#9ca3af;">${b.from}-${b.to}</div><div style="height:10px;width:${w}px;background:${color};border-radius:6px;"></div><div style="color:#9ca3af;">${count}</div></div>`;
+        })
+        .join("");
+      return `<div style="margin-top:12px;border:1px solid #1f2937;border-radius:8px;padding:10px;background:#0b1220;"><div style="font-size:12px;color:#9ca3af;margin-bottom:6px;">${title}</div>${bars}</div>`;
+    };
+
+    const allDamageHist = renderHistogram(damage.histogram, "Histogram damage (wszystko, progi co 100)", "#34d399");
+    const hitDamageHist = renderHistogram(damage.hitHistogram, "Histogram damage (bez miss?w, progi co 100)", "#10b981");
+    const minReqHist = renderHistogram(damage.declaredMinHistogram, "Rozk?ad min_damage z requesta (co 100)", "#3b82f6");
+    const maxReqHist = renderHistogram(damage.declaredMaxHistogram, "Rozk?ad max_damage z requesta (co 100)", "#f59e0b");
+
+    container.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">${cards
+      .map(
+        (c) =>
+          `<div style="flex:1 1 170px;background:#1f2937;padding:10px;border-radius:8px;"><div style="font-size:22px;font-weight:600;">${c.value}</div><div style="font-size:12px;color:#9ca3af;">${c.label}</div></div>`,
+      )
+      .join("")}</div>${allDamageHist}${hitDamageHist}${minReqHist}${maxReqHist}`;
+  }
+
 
   installFightResponseNetworkHook();
   if (USE_POPUP_DETECTION) {

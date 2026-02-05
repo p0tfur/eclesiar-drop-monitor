@@ -115,6 +115,15 @@ export const hitPayloadSchema = z.object({
       debug: z.record(z.any()).optional(),
     })
     .optional(),
+  fightDamage: z
+    .object({
+      damage: optionalNumber,
+      min_damage: optionalNumber,
+      max_damage: optionalNumber,
+      min_damage_without_bonus: optionalNumber,
+      max_damage_without_bonus: optionalNumber,
+    })
+    .optional(),
   extra: z.record(z.any()).optional(),
   metadata: z.record(z.any()).optional(),
 });
