@@ -1,5 +1,21 @@
 # Progress Log - Drop Monitor Backend
 
+## 2026 - Eksport CSV dla statystyk dropów
+
+**Date:** Current session
+
+#### Task: CSV Export Functionality
+
+- ✅ Backend (`src/db.ts`) przyjmuje teraz parametr `includeAll`, który znosi limit rekordów, aby można było pobrać całą bazę na potrzeby eksportu.
+- ✅ Walidacja zapytań (`src/schemas.ts`) została rozszerzona o opcjonalny boolean `includeAll`, więc API poprawnie akceptuje i normalizuje ten parametr.
+- ✅ Userscript (`Eclesiar_Drop_Monitor.user.js`) otrzymał dwa nowe przyciski w modalu statystyk: "CSV wszyscy" oraz "CSV tylko ja".
+- ✅ Dodano pełny pipeline eksportu: pobieranie rekordów z API (z filtrem gracza, jeśli trzeba), normalizacja i ucieczka wartości do CSV, budowanie nagłówków według preferowanej kolejności i wyzwalanie pobierania pliku.
+- ✅ Użytkownik otrzymuje informację o braku danych/błędach, a przyciski są blokowane na czas eksportu, żeby uniknąć wielokrotnych kliknięć.
+
+#### Verification
+
+- Ręcznie uruchomiono modal statystyk, sprawdzono, że oba przyciski pobierają poprawne pliki CSV (cała baza vs tylko rekordy zalogowanego gracza) i że dane w plikach są prawidłowo sformatowane.
+
 ## 2024 - Performance Optimization & Code Review
 
 ### Task: Backend, API, and User Script Optimization

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eclesiar Drop Monitor
 // @namespace    https://eclesiar.com/
-// @version      0.2.10
+// @version      0.2.2
 // @description  Wykrywa dropy podczas bitew, zbiera kontekst gracza/wojny i wysyła dane do centralnego backendu.
 // @author       p0tfur
 // @match        https://eclesiar.com/war/*
@@ -855,7 +855,7 @@
       color: "#f3f4f6",
       ...panelWide(),
     });
-    panel.innerHTML = `<div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;"><h3 style="margin:0;font-size:16px;">Statystyki hitów</h3><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;"><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-only-mine" type="checkbox" style="accent-color:#60a5fa;" />Tylko ja</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-all-columns" type="checkbox" style="accent-color:#60a5fa;" />Wszystkie kolumny</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;">Wiersze <select id="drop-monitor-stats-row-limit" style="background:#0b1220;color:#f3f4f6;border:1px solid #374151;border-radius:6px;padding:2px 6px;outline:none;"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="500">500</option></select></label><button type="button" id="drop-monitor-set-api-key" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Ustaw API key</button><button type="button" id="drop-monitor-stats-view-hits" style="background:#2563eb;border:1px solid #2563eb;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Tabela</button><button type="button" id="drop-monitor-stats-view-analysis" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Analizy</button><button type="button" id="drop-monitor-stats-view-dmg" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">DMG</button><button type="button" id="drop-monitor-stats-view-logs" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Logi</button></div><button type="button" id="drop-monitor-stats-close" style="background:none;border:none;color:#f3f4f6;font-size:20px;cursor:pointer;">×</button></div><div id="drop-monitor-stats-content" style="font-size:13px;line-height:1.5;">Ładowanie...</div>`;
+    panel.innerHTML = `<div class="drop-monitor-stats-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;"><h3 style="margin:0;font-size:16px;">Statystyki hitów</h3><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;"><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-only-mine" type="checkbox" style="accent-color:#60a5fa;" />Tylko ja</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;"><input id="drop-monitor-stats-all-columns" type="checkbox" style="accent-color:#60a5fa;" />Wszystkie kolumny</label><label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#d1d5db;user-select:none;">Wiersze <select id="drop-monitor-stats-row-limit" style="background:#0b1220;color:#f3f4f6;border:1px solid #374151;border-radius:6px;padding:2px 6px;outline:none;"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="500">500</option></select></label><button type="button" id="drop-monitor-export-csv-all" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">CSV wszyscy</button><button type="button" id="drop-monitor-export-csv-mine" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">CSV tylko ja</button><button type="button" id="drop-monitor-set-api-key" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Ustaw API key</button><button type="button" id="drop-monitor-stats-view-hits" style="background:#2563eb;border:1px solid #2563eb;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Tabela</button><button type="button" id="drop-monitor-stats-view-analysis" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Analizy</button><button type="button" id="drop-monitor-stats-view-dmg" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">DMG</button><button type="button" id="drop-monitor-stats-view-logs" style="background:#0b1220;border:1px solid #374151;color:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;">Logi</button></div><button type="button" id="drop-monitor-stats-close" style="background:none;border:none;color:#f3f4f6;font-size:20px;cursor:pointer;">×</button></div><div id="drop-monitor-stats-content" style="font-size:13px;line-height:1.5;">Ładowanie...</div>`;
 
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
@@ -864,6 +864,12 @@
       if (event.target === overlay) closeStatsModal();
     });
     overlay.querySelector("#drop-monitor-stats-close")?.addEventListener("click", closeStatsModal);
+    overlay.querySelector("#drop-monitor-export-csv-all")?.addEventListener("click", async (event) => {
+      await exportHitsCsv({ onlyMine: false, button: event.currentTarget });
+    });
+    overlay.querySelector("#drop-monitor-export-csv-mine")?.addEventListener("click", async (event) => {
+      await exportHitsCsv({ onlyMine: true, button: event.currentTarget });
+    });
     overlay.querySelector("#drop-monitor-stats-view-hits")?.addEventListener("click", async () => {
       state.statsViewMode = "hits";
       await refreshStats();
@@ -1027,6 +1033,172 @@
     } catch (error) {
       clearTimeout(timeoutId);
       throw error;
+    }
+  }
+
+  async function fetchHitsForExport(onlyMine, playerName) {
+    const baseUrl = getApiUrl();
+    const params = new URLSearchParams();
+    params.set("includeAll", "true");
+    if (onlyMine) {
+      if (!playerName) {
+        throw new Error("Nie udało się ustalić nazwy gracza do eksportu.");
+      }
+      params.set("playerName", playerName.trim());
+    }
+    const url = `${baseUrl}?${params.toString()}`;
+    const headers = {};
+    if (settings.apiKey) {
+      headers["X-DROP-API-KEY"] = settings.apiKey;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(url, { headers, credentials: "omit", signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+      const payload = await response.json();
+      return Array.isArray(payload?.data) ? payload.data : [];
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  const CSV_PREFERRED_COLUMNS = [
+    "id",
+    "createdAt",
+    "hitId",
+    "playerName",
+    "isDrop",
+    "dropChance",
+    "fightDropChance",
+    "fightDropSeed",
+    "fightDropDebug",
+    "damage",
+    "minDamage",
+    "maxDamage",
+    "minDamageWithoutBonus",
+    "maxDamageWithoutBonus",
+    "warId",
+    "regionName",
+    "warUrl",
+    "dropHeading",
+    "dropDescription",
+    "playerLocation",
+    "warEffects",
+    "roundNumber",
+    "roundLabel",
+    "roundTimerSeconds",
+    "playerEnergyCurrent",
+    "playerEnergyMax",
+    "playerFoodCurrent",
+    "playerFoodMax",
+    "playerConsumablesCurrent",
+    "playerConsumablesMax",
+    "buttonLabel",
+    "source",
+    "extra",
+  ];
+
+  function normalizeCsvValue(value) {
+    if (value == null) return "";
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? String(value) : "";
+    }
+    if (typeof value === "boolean") {
+      return value ? "true" : "false";
+    }
+    if (typeof value === "object") {
+      try {
+        return JSON.stringify(value);
+      } catch (_err) {
+        return String(value);
+      }
+    }
+    return String(value);
+  }
+
+  function escapeCsvValue(value) {
+    const input = value == null ? "" : String(value);
+    if (/[",\r\n]/.test(input)) {
+      return `"${input.replace(/"/g, '""')}"`;
+    }
+    return input;
+  }
+
+  function buildCsvFromHits(hits) {
+    if (!Array.isArray(hits) || !hits.length) {
+      return "";
+    }
+    const keys = new Set();
+    hits.forEach((hit) => {
+      if (!hit) return;
+      Object.keys(hit).forEach((key) => keys.add(key));
+    });
+    const columns = CSV_PREFERRED_COLUMNS.filter((key) => keys.has(key));
+    const remaining = Array.from(keys).filter((key) => !CSV_PREFERRED_COLUMNS.includes(key));
+    remaining.sort((a, b) => a.localeCompare(b));
+    columns.push(...remaining);
+
+    const header = columns.map((column) => escapeCsvValue(column)).join(",");
+    const rows = hits.map((hit) =>
+      columns
+        .map((column) => escapeCsvValue(normalizeCsvValue(hit?.[column])))
+        .join(","),
+    );
+    return [header, ...rows].join("\r\n");
+  }
+
+  function downloadCsvFile(csvContent, filename) {
+    if (!csvContent) {
+      alert("Brak danych do eksportu.");
+      return;
+    }
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function exportHitsCsv({ onlyMine, button }) {
+    const targetButton = button || null;
+    const originalLabel = targetButton?.textContent;
+    if (targetButton) {
+      targetButton.disabled = true;
+      targetButton.textContent = "Eksport...";
+    }
+    try {
+      const player = parsePlayerInfo();
+      const playerName = player?.name?.trim() || "";
+      if (onlyMine && !playerName) {
+        alert("Nie mogę odczytać nazwy gracza do eksportu.");
+        return;
+      }
+      const hits = await fetchHitsForExport(Boolean(onlyMine), playerName);
+      if (!hits.length) {
+        alert("Brak rekordów do eksportu.");
+        return;
+      }
+      const csv = buildCsvFromHits(hits);
+      const sanitizedName = onlyMine && playerName ? playerName.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "") : "wszyscy";
+      const timestamp = new Date().toISOString().replace(/[:]/g, "-").split(".")[0];
+      const filename = `drop-monitor-${onlyMine ? sanitizedName || "moja-baza" : "wszyscy"}-${timestamp}.csv`;
+      downloadCsvFile(csv, filename);
+    } catch (error) {
+      console.error("[DropMonitor] CSV export failed", error);
+      alert(`Nie udało się wygenerować CSV: ${error?.message || error}`);
+    } finally {
+      if (targetButton && originalLabel != null) {
+        targetButton.disabled = false;
+        targetButton.textContent = originalLabel;
+      }
     }
   }
 
@@ -1317,8 +1489,6 @@
       return;
     }
 
-    const fmtNum = (value, digits = 2) =>
-      typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "-";
     const fmtPct = (value) =>
       typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : "-";
 

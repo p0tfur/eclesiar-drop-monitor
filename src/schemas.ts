@@ -31,6 +31,26 @@ const optionalString = z
   })
   .optional();
 
+const optionalBoolean = z
+  .union([z.boolean(), z.string(), z.number(), z.null()])
+  .transform((value) => {
+    if (value === null || typeof value === "undefined") {
+      return undefined;
+    }
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "number") {
+      return value !== 0;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return undefined;
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+    return undefined;
+  })
+  .optional();
+
 export const hitPayloadSchema = z.object({
   hitId: z.string().min(1),
   triggeredAt: optionalString,
@@ -135,6 +155,7 @@ export const listQuerySchema = z.object({
   playerName: optionalString,
   afterId: optionalInteger,
   limit: optionalInteger,
+  includeAll: optionalBoolean,
 });
 
 export type ListQuery = z.infer<typeof listQuerySchema>;

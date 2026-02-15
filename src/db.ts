@@ -380,9 +380,11 @@ export async function listHitRecords(filters: {
   playerName?: string;
   limit?: number;
   afterId?: number;
+  includeAll?: boolean;
 }): Promise<HitRecordListResult> {
   const db = await getDb();
-  const limit = Math.min(Math.max(filters.limit ?? 50, 1), 500);
+  const includeAll = Boolean(filters.includeAll);
+  const limit = includeAll ? null : Math.min(Math.max(filters.limit ?? 50, 1), 500);
   const queryParams = {
     ":warId": filters.warId ?? null,
     ":playerName": filters.playerName ?? null,
@@ -403,6 +405,8 @@ export async function listHitRecords(filters: {
   `,
     queryParams,
   );
+
+  const limitClause = limit != null ? "LIMIT :limit" : "";
 
   const rows = await db.all<HitRecordRow[]>(
     `
@@ -454,11 +458,11 @@ export async function listHitRecords(filters: {
       AND (:playerName IS NULL OR player_name = :playerName)
       AND (:afterId IS NULL OR id > :afterId)
     ORDER BY created_at DESC
-    LIMIT :limit
+    ${limitClause}
   `,
     {
       ...queryParams,
-      ":limit": limit,
+      ...(limit != null ? { ":limit": limit } : {}),
     },
   );
   return {
