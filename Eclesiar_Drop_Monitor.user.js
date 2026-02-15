@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eclesiar Drop Monitor
 // @namespace    https://eclesiar.com/
-// @version      0.2.2
+// @version      0.3.1
 // @description  Wykrywa dropy podczas bitew, zbiera kontekst gracza/wojny i wysyła dane do centralnego backendu.
 // @author       p0tfur
 // @match        https://eclesiar.com/war/*
@@ -1037,7 +1037,7 @@
   }
 
   async function fetchHitsForExport(onlyMine, playerName) {
-    const baseUrl = getApiUrl();
+    const baseUrl = buildApiUrl("/api/hits/export");
     const params = new URLSearchParams();
     params.set("includeAll", "true");
     if (onlyMine) {

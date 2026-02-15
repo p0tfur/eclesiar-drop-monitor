@@ -245,6 +245,24 @@ app.get("/api/hits", async (req: Request, res: Response) => {
   });
 });
 
+app.get("/api/hits/export", async (req: Request, res: Response) => {
+  const parsed = listQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ status: "error", message: "Invalid query", issues: parsed.error.issues });
+  }
+
+  const result = await listHitRecords({ ...parsed.data, includeAll: true });
+  return res.json({
+    status: "ok",
+    data: result.rows,
+    meta: {
+      totalHits: result.totalHits,
+      totalDrops: result.totalDrops,
+      lastDropAt: result.lastDropAt,
+    },
+  });
+});
+
 app.get("/api/analysis", async (req: Request, res: Response) => {
   const parsed = analysisQuerySchema.safeParse(req.query);
   if (!parsed.success) {

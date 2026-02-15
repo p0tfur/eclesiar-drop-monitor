@@ -11,6 +11,7 @@
 - ✅ Userscript (`Eclesiar_Drop_Monitor.user.js`) otrzymał dwa nowe przyciski w modalu statystyk: "CSV wszyscy" oraz "CSV tylko ja".
 - ✅ Dodano pełny pipeline eksportu: pobieranie rekordów z API (z filtrem gracza, jeśli trzeba), normalizacja i ucieczka wartości do CSV, budowanie nagłówków według preferowanej kolejności i wyzwalanie pobierania pliku.
 - ✅ Użytkownik otrzymuje informację o braku danych/błędach, a przyciski są blokowane na czas eksportu, żeby uniknąć wielokrotnych kliknięć.
+- ✅ Stworzono dedykowany endpoint `GET /api/hits/export`, który zawsze wymusza `includeAll`, a userscript korzysta właśnie z niego, dzięki czemu eksport pobiera pełną bazę niezależnie od limitu widoku.
 
 #### Verification
 
