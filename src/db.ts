@@ -477,8 +477,12 @@ function computeDenominator(maxSeed: number | null): number | null {
   if (maxSeed == null || !Number.isFinite(maxSeed) || maxSeed <= 0) {
     return null;
   }
-  const digits = Math.max(1, String(Math.trunc(maxSeed)).length);
-  return Math.pow(10, digits);
+  // Seed 10000 should map to denominator 10000, not 100000.
+  const normalizedMax = Math.trunc(maxSeed);
+  if (normalizedMax <= 1) {
+    return 1;
+  }
+  return Math.pow(10, Math.ceil(Math.log10(normalizedMax)));
 }
 
 function safeJsonParse(text: string | null): any | null {
